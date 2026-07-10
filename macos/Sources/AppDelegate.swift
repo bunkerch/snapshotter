@@ -119,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
+        case "url.open": openExternalURL(request.payload?.url)
         case "launchAtLogin.set": setLaunchAtLogin(
             enabled: request.payload?.enabled == true,
             request: raw,
@@ -127,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         )
         default: Backend.shared.handle(raw, requestID: request.id, webView: message.webView)
         }
+    }
+
+    private func openExternalURL(_ value: String?) {
+        guard let value, let url = URL(string: value), url.scheme == "https" else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func chooseSourceFolder(request: BridgeRequest, webView: WKWebView?) {
@@ -243,6 +249,7 @@ private struct BridgePayload: Decodable, Sendable {
     let name: String?
     let password: String?
     let repositoryID: String?
+    let url: String?
 }
 
 private final class Backend: @unchecked Sendable {

@@ -3,6 +3,7 @@ import {
     Clock3,
     Folder,
     HardDrive,
+    Info,
     LoaderCircle,
     Play,
     Plus,
@@ -12,7 +13,7 @@ import {
     Wrench,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { requestNative } from "./bridge"
+import { requestNative, sendNative } from "./bridge"
 import type { ApplicationState, Snapshot } from "./model"
 
 type View = "overview" | "snapshots" | "settings"
@@ -464,6 +465,7 @@ function Settings({
     const [retention, setRetention] = useState(preferences.retention)
     const [checking, setChecking] = useState(false)
     const [checkResult, setCheckResult] = useState<string>()
+    const [acknowledgementsOpen, setAcknowledgementsOpen] = useState(false)
 
     const updateSchedule = async (
         changes: Partial<typeof preferences.schedule>,
@@ -681,6 +683,43 @@ function Settings({
                     {checkResult && <small>{checkResult}</small>}
                 </span>
             </button>
+            <h3>About</h3>
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => setAcknowledgementsOpen((open) => !open)}
+            >
+                <Info size={17} />
+                <span>
+                    <strong>Open Source Acknowledgements</strong>
+                    <small>Software that makes Snapshotter possible</small>
+                </span>
+                <ChevronRight
+                    className={acknowledgementsOpen ? "expanded" : ""}
+                    size={15}
+                />
+            </button>
+            {acknowledgementsOpen && (
+                <div className="acknowledgements">
+                    <strong>restic 0.19.1</strong>
+                    <span>
+                        Fast, secure backup engine · BSD 2-Clause License
+                    </span>
+                    <span>
+                        Copyright © 2014 Alexander Neumann and contributors
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            sendNative("url.open", {
+                                url: "https://github.com/restic/restic/blob/v0.19.1/LICENSE",
+                            })
+                        }
+                    >
+                        View license
+                    </button>
+                </div>
+            )}
         </section>
     )
 }

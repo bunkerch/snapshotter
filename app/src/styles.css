@@ -683,6 +683,28 @@ small {
     justify-self: end;
 }
 
+.acknowledgements {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 5px;
+    border-bottom: 1px solid var(--separator);
+    color: var(--secondary);
+    font-size: 9px;
+}
+
+.acknowledgements strong {
+    color: var(--label);
+    font-size: 10px;
+}
+
+.acknowledgements button {
+    width: fit-content;
+    padding: 3px 0;
+    color: var(--accent);
+    font-size: 9px;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .status-orb.working,
     .progress span {
