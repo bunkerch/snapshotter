@@ -2,7 +2,6 @@ import AppKit
 import ServiceManagement
 import WebKit
 
-@main
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, NSPopoverDelegate {
     private let popover = NSPopover()
     private var statusItem: NSStatusItem!
