@@ -22,6 +22,7 @@ declare global {
             id: string,
             response: NativeResponse<unknown>,
         ) => void
+        __snapshotterPackaged?: boolean
     }
 }
 
@@ -61,4 +62,8 @@ export function sendNative(type: string, payload: unknown = {}) {
 
 export function isNativeHost() {
     return Boolean(window.webkit?.messageHandlers?.resticNative)
+}
+
+export function isPackagedHost() {
+    return window.__snapshotterPackaged === true
 }

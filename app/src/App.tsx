@@ -1,4 +1,5 @@
 import {
+    Archive,
     ChevronRight,
     Clock3,
     Folder,
@@ -13,7 +14,7 @@ import {
     Wrench,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { requestNative, sendNative } from "./bridge"
+import { isPackagedHost, requestNative } from "./bridge"
 import type { ApplicationState, Snapshot } from "./model"
 
 type View = "overview" | "snapshots" | "settings"
@@ -76,35 +77,39 @@ export function App() {
                 onView={setView}
                 showNavigation={state?.status === "ready"}
             />
-            {error && <div className="error-banner">{error}</div>}
-            {!state && <Loading />}
-            {state?.status === "unconfigured" && (
-                <Setup onComplete={(next) => setState(normalizeState(next))} />
-            )}
-            {state?.status === "locked" && (
-                <Locked
-                    state={state}
-                    onComplete={(next) => setState(normalizeState(next))}
-                />
-            )}
-            {state?.status === "ready" && view === "overview" && (
-                <Overview
-                    state={state}
-                    running={running}
-                    onBackup={backupNow}
-                    onAddSources={addSources}
-                    onSnapshots={() => setView("snapshots")}
-                />
-            )}
-            {state?.status === "ready" && view === "snapshots" && (
-                <Snapshots snapshots={state.snapshots} />
-            )}
-            {state?.status === "ready" && view === "settings" && (
-                <Settings
-                    state={state}
-                    onState={(next) => setState(normalizeState(next))}
-                />
-            )}
+            <div className="app-content">
+                {error && <div className="error-banner">{error}</div>}
+                {!state && <Loading />}
+                {state?.status === "unconfigured" && (
+                    <Setup
+                        onComplete={(next) => setState(normalizeState(next))}
+                    />
+                )}
+                {state?.status === "locked" && (
+                    <Locked
+                        state={state}
+                        onComplete={(next) => setState(normalizeState(next))}
+                    />
+                )}
+                {state?.status === "ready" && view === "overview" && (
+                    <Overview
+                        state={state}
+                        running={running}
+                        onBackup={backupNow}
+                        onAddSources={addSources}
+                        onSnapshots={() => setView("snapshots")}
+                    />
+                )}
+                {state?.status === "ready" && view === "snapshots" && (
+                    <Snapshots snapshots={state.snapshots} />
+                )}
+                {state?.status === "ready" && view === "settings" && (
+                    <Settings
+                        state={state}
+                        onState={(next) => setState(normalizeState(next))}
+                    />
+                )}
+            </div>
         </main>
     )
 }
@@ -429,22 +434,29 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
                     onChange={(event) => setQuery(event.target.value)}
                 />
             </div>
-            <div className="page-heading">
-                <h1>Snapshots</h1>
-            </div>
             <div className="timeline">
                 {visibleSnapshots.length === 0 && (
                     <div className="empty-row">No snapshots yet</div>
                 )}
-                {visibleSnapshots.map((snapshot, index) => (
+                {visibleSnapshots.map((snapshot) => (
                     <div className="timeline-row" key={snapshot.id}>
-                        <div className="timeline-rail">
-                            <span />
-                            {index < visibleSnapshots.length - 1 && <i />}
+                        <div className="snapshot-symbol">
+                            <Archive size={16} />
                         </div>
                         <div className="row-copy">
                             <strong>{formatDate(snapshot.time)}</strong>
-                            <small>{snapshot.hostname}</small>
+                            <small>
+                                {snapshot.paths.map(basename).join(", ") ||
+                                    "No source paths"}
+                            </small>
+                            <div className="snapshot-metadata">
+                                <span>
+                                    {formatCount(snapshot.fileCount)} files
+                                </span>
+                                <span>{formatBytes(snapshot.totalSize)}</span>
+                                <span>{snapshot.hostname}</span>
+                                <code>{snapshot.id.slice(0, 8)}</code>
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -466,6 +478,8 @@ function Settings({
     const [checking, setChecking] = useState(false)
     const [checkResult, setCheckResult] = useState<string>()
     const [acknowledgementsOpen, setAcknowledgementsOpen] = useState(false)
+    const [settingsError, setSettingsError] = useState<string>()
+    const packaged = isPackagedHost()
 
     const updateSchedule = async (
         changes: Partial<typeof preferences.schedule>,
@@ -479,11 +493,16 @@ function Settings({
     }
 
     const updateLaunchAtLogin = async () => {
-        onState(
-            await requestNative<ApplicationState>("launchAtLogin.set", {
-                enabled: !preferences.launchAtLogin,
-            }),
-        )
+        try {
+            onState(
+                await requestNative<ApplicationState>("launchAtLogin.set", {
+                    enabled: !preferences.launchAtLogin,
+                }),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
     }
 
     const saveRetention = async () => {
@@ -509,9 +528,9 @@ function Settings({
     const timeValue = `${String(preferences.schedule.hour).padStart(2, "0")}:${String(preferences.schedule.minute).padStart(2, "0")}`
     return (
         <section className="page settings-page">
-            <div className="page-heading">
-                <h1>Settings</h1>
-            </div>
+            {settingsError && (
+                <div className="error-banner">{settingsError}</div>
+            )}
             <h3>Repository</h3>
             <div className="setting-row">
                 <HardDrive size={17} />
@@ -543,11 +562,15 @@ function Settings({
                 <label>
                     <span>
                         <strong>Start at login</strong>
+                        {!packaged && (
+                            <small>Available in the packaged app</small>
+                        )}
                     </span>
                     <button
                         type="button"
                         className={`switch ${preferences.launchAtLogin ? "on" : ""}`}
                         aria-label="Toggle start at login"
+                        disabled={!packaged}
                         onClick={() => void updateLaunchAtLogin()}
                     >
                         <span />
@@ -624,9 +647,9 @@ function Settings({
                 <span>
                     <strong>Smart retention</strong>
                     <small>
-                        {preferences.retention.hourly} hourly ·{" "}
                         {preferences.retention.daily} daily ·{" "}
-                        {preferences.retention.weekly} weekly
+                        {preferences.retention.weekly} weekly ·{" "}
+                        {preferences.retention.monthly} monthly
                     </small>
                 </span>
                 <ChevronRight
@@ -636,29 +659,25 @@ function Settings({
             </button>
             {retentionOpen && (
                 <div className="retention-editor">
-                    {(["hourly", "daily", "weekly", "monthly"] as const).map(
-                        (period) => (
-                            <label key={period}>
-                                <span>
-                                    {period[0].toUpperCase() + period.slice(1)}
-                                </span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    max="999"
-                                    value={retention[period]}
-                                    onChange={(event) =>
-                                        setRetention((current) => ({
-                                            ...current,
-                                            [period]: Number(
-                                                event.target.value,
-                                            ),
-                                        }))
-                                    }
-                                />
-                            </label>
-                        ),
-                    )}
+                    {(["daily", "weekly", "monthly"] as const).map((period) => (
+                        <label key={period}>
+                            <span>
+                                {period[0].toUpperCase() + period.slice(1)}
+                            </span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="999"
+                                value={retention[period]}
+                                onChange={(event) =>
+                                    setRetention((current) => ({
+                                        ...current,
+                                        [period]: Number(event.target.value),
+                                    }))
+                                }
+                            />
+                        </label>
+                    ))}
                     <button
                         type="button"
                         className="primary-button"
@@ -710,11 +729,16 @@ function Settings({
                     </span>
                     <button
                         type="button"
-                        onClick={() =>
-                            sendNative("url.open", {
-                                url: "https://github.com/restic/restic/blob/v0.19.1/LICENSE",
-                            })
-                        }
+                        onClick={async () => {
+                            try {
+                                await requestNative("url.open", {
+                                    url: "https://github.com/restic/restic/blob/v0.19.1/LICENSE",
+                                })
+                                setSettingsError(undefined)
+                            } catch (error) {
+                                setSettingsError(message(error))
+                            }
+                        }}
                     >
                         View license
                     </button>
@@ -748,6 +772,18 @@ function formatRelative(value: string) {
           : minutes < 1440
             ? `${Math.floor(minutes / 60)}h ago`
             : `${Math.floor(minutes / 1440)}d ago`
+}
+function formatCount(value: number) {
+    return new Intl.NumberFormat().format(value ?? 0)
+}
+function formatBytes(value: number) {
+    if (!value) return "0 B"
+    const units = ["B", "KB", "MB", "GB", "TB"]
+    const exponent = Math.min(
+        Math.floor(Math.log(value) / Math.log(1024)),
+        units.length - 1,
+    )
+    return `${(value / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 function scheduleLabel(state: ApplicationState) {
     const schedule = state.preferences.schedule

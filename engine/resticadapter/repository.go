@@ -147,13 +147,18 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink s
 	progress.Fraction = 1
 	emitProgress(sink, progress)
 
-	return domain.Snapshot{
+	result := domain.Snapshot{
 		ID:       id.String(),
 		Time:     snapshot.Time,
 		Hostname: snapshot.Hostname,
 		Paths:    append([]string(nil), snapshot.Paths...),
 		Tags:     append([]string(nil), snapshot.Tags...),
-	}, nil
+	}
+	if snapshot.Summary != nil {
+		result.FileCount = uint64(snapshot.Summary.TotalFilesProcessed)
+		result.TotalSize = snapshot.Summary.TotalBytesProcessed
+	}
+	return result, nil
 }
 
 func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
@@ -168,13 +173,18 @@ func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
 		if loadErr != nil {
 			return loadErr
 		}
-		snapshots = append(snapshots, domain.Snapshot{
+		item := domain.Snapshot{
 			ID:       id.String(),
 			Time:     snapshot.Time,
 			Hostname: snapshot.Hostname,
 			Paths:    append([]string(nil), snapshot.Paths...),
 			Tags:     append([]string(nil), snapshot.Tags...),
-		})
+		}
+		if snapshot.Summary != nil {
+			item.FileCount = uint64(snapshot.Summary.TotalFilesProcessed)
+			item.TotalSize = snapshot.Summary.TotalBytesProcessed
+		}
+		snapshots = append(snapshots, item)
 		return nil
 	})
 	if err != nil {

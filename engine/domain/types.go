@@ -80,11 +80,13 @@ func DefaultPreferences() Preferences {
 }
 
 type Snapshot struct {
-	ID       string    `json:"id"`
-	Time     time.Time `json:"time"`
-	Hostname string    `json:"hostname"`
-	Paths    []string  `json:"paths"`
-	Tags     []string  `json:"tags"`
+	ID        string    `json:"id"`
+	Time      time.Time `json:"time"`
+	Hostname  string    `json:"hostname"`
+	Paths     []string  `json:"paths"`
+	Tags      []string  `json:"tags"`
+	FileCount uint64    `json:"fileCount"`
+	TotalSize uint64    `json:"totalSize"`
 }
 
 type Entry struct {

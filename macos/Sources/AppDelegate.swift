@@ -55,6 +55,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     private func configurePopover() {
         let configuration = WKWebViewConfiguration()
+        let packaged = Bundle.main.bundleURL.pathExtension == "app" ? "true" : "false"
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: "window.__snapshotterPackaged = \(packaged)",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
         configuration.userContentController.add(self, name: "resticNative")
 
         let controller = WebViewController(configuration: configuration)
@@ -119,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
-        case "url.open": openExternalURL(request.payload?.url)
+        case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
             enabled: request.payload?.enabled == true,
             request: raw,
@@ -130,9 +138,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         }
     }
 
-    private func openExternalURL(_ value: String?) {
-        guard let value, let url = URL(string: value), url.scheme == "https" else { return }
-        NSWorkspace.shared.open(url)
+    private func openExternalURL(_ value: String?, requestID: String?, webView: WKWebView?) {
+        guard let value, let url = URL(string: value), url.scheme == "https" else {
+            Backend.shared.fail("The license URL is invalid", requestID: requestID, webView: webView)
+            return
+        }
+        if NSWorkspace.shared.open(url) {
+            Backend.shared.succeed(requestID: requestID, webView: webView)
+        } else {
+            Backend.shared.fail("macOS could not open the license URL", requestID: requestID, webView: webView)
+        }
     }
 
     private func chooseSourceFolder(request: BridgeRequest, webView: WKWebView?) {
@@ -345,6 +360,10 @@ private final class Backend: @unchecked Sendable {
     func fail(_ message: String, requestID: String?, webView: WKWebView?) {
         let error = NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         Self.respond(Self.errorResponse(error), requestID: requestID, reference: WebViewReference(webView))
+    }
+
+    func succeed(requestID: String?, webView: WKWebView?) {
+        Self.respond(#"{"ok":true}"#, requestID: requestID, reference: WebViewReference(webView))
     }
 
     private static func respond(_ response: String, requestID: String?, reference: WebViewReference) {

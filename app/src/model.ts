@@ -44,6 +44,8 @@ export interface Snapshot {
     hostname: string
     paths: string[]
     tags: string[]
+    fileCount: number
+    totalSize: number
 }
 
 export interface ApplicationState {
