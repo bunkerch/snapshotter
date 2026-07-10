@@ -83,6 +83,13 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if len(progress) == 0 || progress[len(progress)-1].Phase != "complete" {
 		t.Fatalf("unexpected progress: %#v", progress)
 	}
+	snapshots, err := adapter.Snapshots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) != 1 || snapshots[0].ID != snapshot.ID {
+		t.Fatalf("unexpected snapshots: %#v", snapshots)
+	}
 }
 
 func TestUnlockRejectsWrongPassword(t *testing.T) {

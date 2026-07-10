@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -153,6 +154,36 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink s
 		Paths:    append([]string(nil), snapshot.Paths...),
 		Tags:     append([]string(nil), snapshot.Tags...),
 	}, nil
+}
+
+func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return nil, errors.New("repository is not open")
+	}
+
+	snapshots := make([]domain.Snapshot, 0)
+	err := data.ForAllSnapshots(ctx, r.repo, r.repo, nil, func(id restic.ID, snapshot *data.Snapshot, loadErr error) error {
+		if loadErr != nil {
+			return loadErr
+		}
+		snapshots = append(snapshots, domain.Snapshot{
+			ID:       id.String(),
+			Time:     snapshot.Time,
+			Hostname: snapshot.Hostname,
+			Paths:    append([]string(nil), snapshot.Paths...),
+			Tags:     append([]string(nil), snapshot.Tags...),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].Time.After(snapshots[j].Time)
+	})
+	return snapshots, nil
 }
 
 func (r *Repository) Close() error {
