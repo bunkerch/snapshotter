@@ -33,6 +33,48 @@ type RetentionPolicy struct {
 	Yearly  int `json:"yearly"`
 }
 
+type ScheduleKind string
+
+const (
+	ScheduleHourly ScheduleKind = "hourly"
+	ScheduleDaily  ScheduleKind = "daily"
+)
+
+type Schedule struct {
+	Enabled  bool         `json:"enabled"`
+	Kind     ScheduleKind `json:"kind"`
+	Interval int          `json:"interval"`
+	Hour     int          `json:"hour"`
+	Minute   int          `json:"minute"`
+}
+
+type Preferences struct {
+	Version       int             `json:"version"`
+	Repository    *Repository     `json:"repository,omitempty"`
+	Sources       []Source        `json:"sources"`
+	Schedule      Schedule        `json:"schedule"`
+	Retention     RetentionPolicy `json:"retention"`
+	LaunchAtLogin bool            `json:"launchAtLogin"`
+}
+
+func DefaultPreferences() Preferences {
+	return Preferences{
+		Version: 1,
+		Schedule: Schedule{
+			Enabled:  true,
+			Kind:     ScheduleHourly,
+			Interval: 1,
+		},
+		Retention: RetentionPolicy{
+			Hourly:  24,
+			Daily:   7,
+			Weekly:  4,
+			Monthly: 12,
+		},
+		LaunchAtLogin: true,
+	}
+}
+
 type Snapshot struct {
 	ID       string    `json:"id"`
 	Time     time.Time `json:"time"`
