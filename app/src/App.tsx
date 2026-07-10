@@ -1,7 +1,10 @@
 import {
     Archive,
+    ArrowLeft,
     ChevronRight,
     Clock3,
+    Download,
+    File,
     Folder,
     HardDrive,
     Info,
@@ -15,7 +18,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { isPackagedHost, requestNative } from "./bridge"
-import type { ApplicationState, Snapshot } from "./model"
+import type { ApplicationState, Snapshot, SnapshotEntry } from "./model"
 
 type View = "overview" | "snapshots" | "settings"
 
@@ -481,6 +484,7 @@ function SectionTitle({
 
 function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
     const [query, setQuery] = useState("")
+    const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot>()
     const normalizedQuery = query.trim().toLocaleLowerCase()
     const visibleSnapshots = snapshots.filter((snapshot) =>
         [snapshot.id, snapshot.hostname, formatDate(snapshot.time)]
@@ -488,6 +492,15 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
             .toLocaleLowerCase()
             .includes(normalizedQuery),
     )
+    if (selectedSnapshot) {
+        return (
+            <SnapshotBrowser
+                snapshot={selectedSnapshot}
+                onBack={() => setSelectedSnapshot(undefined)}
+            />
+        )
+    }
+
     return (
         <section className="page">
             <div className="search">
@@ -504,7 +517,12 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
                     <div className="empty-row">No snapshots yet</div>
                 )}
                 {visibleSnapshots.map((snapshot) => (
-                    <div className="timeline-row" key={snapshot.id}>
+                    <button
+                        type="button"
+                        className="timeline-row"
+                        key={snapshot.id}
+                        onClick={() => setSelectedSnapshot(snapshot)}
+                    >
                         <div className="snapshot-symbol">
                             <Archive size={16} />
                         </div>
@@ -523,9 +541,136 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
                                 <code>{snapshot.id.slice(0, 8)}</code>
                             </div>
                         </div>
-                    </div>
+                        <ChevronRight size={15} />
+                    </button>
                 ))}
             </div>
+        </section>
+    )
+}
+
+function SnapshotBrowser({
+    snapshot,
+    onBack,
+}: {
+    snapshot: Snapshot
+    onBack: () => void
+}) {
+    const [path, setPath] = useState("/")
+    const [entries, setEntries] = useState<SnapshotEntry[]>([])
+    const [selected, setSelected] = useState<SnapshotEntry>()
+    const [loading, setLoading] = useState(true)
+    const [status, setStatus] = useState<string>()
+
+    useEffect(() => {
+        let active = true
+        setLoading(true)
+        setSelected(undefined)
+        requestNative<SnapshotEntry[]>("snapshot.list", {
+            snapshotID: snapshot.id,
+            path,
+        })
+            .then((items) => {
+                if (active) setEntries(items ?? [])
+            })
+            .catch((error) => {
+                if (active) setStatus(message(error))
+            })
+            .finally(() => {
+                if (active) setLoading(false)
+            })
+        return () => {
+            active = false
+        }
+    }, [path, snapshot.id])
+
+    const restore = async () => {
+        const restorePath = selected?.path ?? path
+        setStatus("Choose where to restore…")
+        try {
+            const result = await requestNative<{ restoredFiles: number }>(
+                "snapshot.restore.choose",
+                { snapshotID: snapshot.id, path: restorePath },
+            )
+            setStatus(
+                `Restored ${formatCount(result.restoredFiles)} ${result.restoredFiles === 1 ? "file" : "files"}`,
+            )
+        } catch (error) {
+            setStatus(message(error))
+        }
+    }
+
+    const parent =
+        path === "/" ? "/" : path.split("/").slice(0, -1).join("/") || "/"
+    return (
+        <section className="page snapshot-browser">
+            <div className="browser-toolbar">
+                <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Back to snapshots"
+                    onClick={onBack}
+                >
+                    <ArrowLeft size={15} />
+                </button>
+                <div>
+                    <strong>{formatDate(snapshot.time)}</strong>
+                    <small>{path}</small>
+                </div>
+                <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void restore()}
+                    disabled={loading}
+                >
+                    <Download size={13} />
+                    Restore
+                </button>
+            </div>
+            {path !== "/" && (
+                <button
+                    type="button"
+                    className="entry-row parent-entry"
+                    onClick={() => setPath(parent)}
+                >
+                    <Folder size={16} />
+                    <span>..</span>
+                </button>
+            )}
+            <div className="entry-list">
+                {loading && <div className="empty-row">Loading…</div>}
+                {!loading && entries.length === 0 && (
+                    <div className="empty-row">This folder is empty</div>
+                )}
+                {!loading &&
+                    entries.map((entry) => (
+                        <button
+                            type="button"
+                            className={`entry-row ${selected?.path === entry.path ? "selected" : ""}`}
+                            key={entry.path}
+                            onClick={() => {
+                                if (entry.type === "dir") setPath(entry.path)
+                                else setSelected(entry)
+                            }}
+                        >
+                            {entry.type === "dir" ? (
+                                <Folder size={16} />
+                            ) : (
+                                <File size={16} />
+                            )}
+                            <span>
+                                <strong>{entry.name}</strong>
+                                <small>
+                                    {entry.type === "dir"
+                                        ? "Folder"
+                                        : formatBytes(entry.size)}
+                                </small>
+                            </span>
+                            {entry.type === "dir" && <ChevronRight size={14} />}
+                        </button>
+                    ))}
+            </div>
+            {status && <div className="restore-status">{status}</div>}
         </section>
     )
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/restic/restic/app/domain"
@@ -92,6 +93,34 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	}
 	if err := adapter.Check(context.Background(), nil); err != nil {
 		t.Fatal(err)
+	}
+	entries, err := adapter.List(context.Background(), snapshot.ID, sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != "hello.txt" || entries[0].Type != "file" {
+		t.Fatalf("unexpected snapshot entries: %#v", entries)
+	}
+	restoreDestination := t.TempDir()
+	restored, err := adapter.Restore(
+		context.Background(),
+		snapshot.ID,
+		filepath.Join(sourcePath, "hello.txt"),
+		restoreDestination,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 1 {
+		t.Fatalf("restored %d files, want 1", restored)
+	}
+	restoredPath := filepath.Join(restoreDestination, strings.TrimPrefix(sourcePath, string(filepath.Separator)), "hello.txt")
+	content, err := os.ReadFile(restoredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "hello from restic app" {
+		t.Fatalf("unexpected restored content: %q", content)
 	}
 }
 

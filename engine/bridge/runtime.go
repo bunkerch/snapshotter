@@ -78,6 +78,10 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.setLaunchAtLogin(req.Payload)
 	case "repository.check":
 		data, err = r.checkRepository(ctx)
+	case "snapshot.list":
+		data, err = r.listSnapshot(ctx, req.Payload)
+	case "snapshot.restore":
+		data, err = r.restoreSnapshot(ctx, req.Payload)
 	default:
 		err = fmt.Errorf("unsupported request type %q", req.Type)
 	}
@@ -85,6 +89,38 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		return failed(err)
 	}
 	return response{OK: true, Data: data}
+}
+
+func (r *runtime) listSnapshot(ctx context.Context, payload json.RawMessage) ([]domain.Entry, error) {
+	var input struct {
+		SnapshotID string `json:"snapshotID"`
+		Path       string `json:"path"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return nil, fmt.Errorf("decode snapshot path: %w", err)
+	}
+	return r.repository.List(ctx, input.SnapshotID, input.Path)
+}
+
+func (r *runtime) restoreSnapshot(ctx context.Context, payload json.RawMessage) (map[string]uint64, error) {
+	var input struct {
+		SnapshotID  string `json:"snapshotID"`
+		Path        string `json:"path"`
+		Destination string `json:"destination"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return nil, fmt.Errorf("decode restore request: %w", err)
+	}
+	operationContext, done, err := r.coordinator.Start(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	count, err := r.repository.Restore(operationContext, input.SnapshotID, input.Path, input.Destination)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]uint64{"restoredFiles": count}, nil
 }
 
 func (r *runtime) checkRepository(ctx context.Context) (applicationState, error) {

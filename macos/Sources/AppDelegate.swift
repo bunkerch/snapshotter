@@ -127,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
+        case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
             enabled: request.payload?.enabled == true,
@@ -136,6 +137,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         )
         default: Backend.shared.handle(raw, requestID: request.id, webView: message.webView)
         }
+    }
+
+    private func chooseRestoreDestination(request: BridgeRequest, webView: WKWebView?) {
+        guard let snapshotID = request.payload?.snapshotID,
+              let path = request.payload?.path else {
+            Backend.shared.fail("Snapshot and path are required", requestID: request.id, webView: webView)
+            return
+        }
+        popover.performClose(nil)
+        let panel = NSOpenPanel()
+        panel.title = "Choose Restore Destination"
+        panel.prompt = "Restore Here"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { response in
+            defer { self.openPopover() }
+            guard response == .OK, let destination = panel.url else {
+                Backend.shared.fail("Restore cancelled", requestID: request.id, webView: webView)
+                return
+            }
+            Backend.shared.restoreSnapshot(
+                snapshotID: snapshotID,
+                path: path,
+                destination: destination.path,
+                requestID: request.id,
+                webView: webView
+            )
+        }
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func openExternalURL(_ value: String?, requestID: String?, webView: WKWebView?) {
@@ -276,6 +308,8 @@ private struct BridgePayload: Decodable, Sendable {
     let password: String?
     let repositoryID: String?
     let url: String?
+    let snapshotID: String?
+    let path: String?
 }
 
 private final class Backend: @unchecked Sendable {
@@ -366,6 +400,16 @@ private final class Backend: @unchecked Sendable {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
             }
         }
+    }
+
+    func restoreSnapshot(snapshotID: String, path: String, destination: String, requestID: String?, webView: WKWebView?) {
+        let payload: [String: Any] = [
+            "type": "snapshot.restore",
+            "payload": ["snapshotID": snapshotID, "path": path, "destination": destination],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let request = String(data: data, encoding: .utf8) else { return }
+        handle(request, requestID: requestID, webView: webView)
     }
 
     func fail(_ message: String, requestID: String?, webView: WKWebView?) {

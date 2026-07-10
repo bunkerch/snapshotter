@@ -10,6 +10,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/elithrar/simple-scrypt v1.4.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/peterbourgon/unixtransport v0.0.7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

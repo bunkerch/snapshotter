@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/restic/restic/internal/fs"
 	"github.com/restic/restic/internal/repository"
 	"github.com/restic/restic/internal/restic"
+	"github.com/restic/restic/internal/restorer"
 )
 
 var ErrRepositoryOpen = errors.New("a repository is already open")
@@ -221,6 +225,118 @@ func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error
 	}
 	emitProgress(sink, service.Progress{Phase: "complete", Fraction: 1})
 	return nil
+}
+
+func (r *Repository) List(ctx context.Context, snapshotID, directory string) ([]domain.Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return nil, errors.New("repository is not open")
+	}
+	if err := r.repo.LoadIndex(ctx, nil); err != nil {
+		return nil, fmt.Errorf("load repository index: %w", err)
+	}
+	snapshot, err := r.loadSnapshot(ctx, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.Tree == nil {
+		return nil, errors.New("snapshot has no tree")
+	}
+	treeID := *snapshot.Tree
+	cleaned := pathpkg.Clean("/" + strings.TrimSpace(directory))
+	if cleaned != "/" {
+		for _, component := range strings.Split(strings.TrimPrefix(cleaned, "/"), "/") {
+			tree, err := data.LoadTree(ctx, r.repo, treeID)
+			if err != nil {
+				return nil, fmt.Errorf("load snapshot directory: %w", err)
+			}
+			found := false
+			for item := range tree {
+				if item.Error != nil {
+					return nil, item.Error
+				}
+				if item.Node.Name == component && item.Node.Type == data.NodeTypeDir && item.Node.Subtree != nil {
+					treeID = *item.Node.Subtree
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("snapshot directory %q was not found", cleaned)
+			}
+		}
+	}
+	tree, err := data.LoadTree(ctx, r.repo, treeID)
+	if err != nil {
+		return nil, fmt.Errorf("load snapshot directory: %w", err)
+	}
+	entries := make([]domain.Entry, 0)
+	for item := range tree {
+		if item.Error != nil {
+			return nil, item.Error
+		}
+		entries = append(entries, domain.Entry{
+			Name:    item.Node.Name,
+			Path:    pathpkg.Join(cleaned, item.Node.Name),
+			Type:    string(item.Node.Type),
+			Size:    item.Node.Size,
+			ModTime: item.Node.ModTime,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Type == entries[j].Type {
+			return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+		}
+		return entries[i].Type == string(data.NodeTypeDir)
+	})
+	return entries, nil
+}
+
+func (r *Repository) Restore(ctx context.Context, snapshotID, selectedPath, destination string) (uint64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return 0, errors.New("repository is not open")
+	}
+	if err := r.repo.LoadIndex(ctx, nil); err != nil {
+		return 0, fmt.Errorf("load repository index: %w", err)
+	}
+	snapshot, err := r.loadSnapshot(ctx, snapshotID)
+	if err != nil {
+		return 0, err
+	}
+	selected := pathpkg.Clean("/" + strings.TrimSpace(selectedPath))
+	restore := restorer.NewRestorer(r.repo, snapshot, restorer.Options{Overwrite: restorer.OverwriteIfChanged})
+	restore.SelectFilter = func(item string, _ bool) (bool, bool) {
+		item = filepath.ToSlash(filepath.Clean(item))
+		if !strings.HasPrefix(item, "/") {
+			item = "/" + item
+		}
+		if selected == "/" {
+			return true, true
+		}
+		selectedForRestore := item == selected || strings.HasPrefix(item, selected+"/")
+		childMayBeSelected := selectedForRestore || item == "/" || strings.HasPrefix(selected, item+"/")
+		return selectedForRestore, childMayBeSelected
+	}
+	count, err := restore.RestoreTo(ctx, destination)
+	if err != nil {
+		return count, fmt.Errorf("restore snapshot path: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) loadSnapshot(ctx context.Context, snapshotID string) (*data.Snapshot, error) {
+	id, err := restic.Find(ctx, r.repo, restic.SnapshotFile, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("find snapshot: %w", err)
+	}
+	snapshot, err := data.LoadSnapshot(ctx, r.repo, id)
+	if err != nil {
+		return nil, fmt.Errorf("load snapshot: %w", err)
+	}
+	return snapshot, nil
 }
 
 func (r *Repository) Close() error {

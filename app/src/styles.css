@@ -496,6 +496,75 @@ small {
     font-size: 8px;
 }
 
+.browser-toolbar {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 43px;
+    border-bottom: 1px solid var(--separator);
+}
+
+.browser-toolbar > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.browser-toolbar strong {
+    font-size: 10px;
+}
+
+.browser-toolbar small {
+    direction: rtl;
+    text-align: left;
+}
+
+.entry-list {
+    overflow: hidden;
+}
+
+.entry-row {
+    display: flex;
+    width: 100%;
+    min-height: 40px;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 5px;
+    border-bottom: 1px solid var(--separator);
+    text-align: left;
+}
+
+.entry-row > svg:first-child {
+    flex: 0 0 auto;
+    color: var(--accent);
+}
+
+.entry-row > span {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.entry-row:hover,
+.entry-row.selected {
+    border-radius: 6px;
+    background: var(--fill);
+}
+
+.parent-entry {
+    min-height: 32px;
+    color: var(--secondary);
+}
+
+.restore-status {
+    padding: 8px 5px;
+    color: var(--secondary);
+    font-size: 9px;
+}
+
 .settings-page h3 {
     padding: 0 5px;
     margin: 15px 0 3px;

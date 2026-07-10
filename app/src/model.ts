@@ -48,6 +48,14 @@ export interface Snapshot {
     totalSize: number
 }
 
+export interface SnapshotEntry {
+    name: string
+    path: string
+    type: string
+    size: number
+    modTime: string
+}
+
 export interface ApplicationState {
     preferences: Preferences
     snapshots: Snapshot[]
