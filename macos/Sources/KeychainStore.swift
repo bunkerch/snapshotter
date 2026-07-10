@@ -19,11 +19,19 @@ struct KeychainStore: Sendable {
     private let service = "app.snapshotter.repository"
 
     func savePassword(_ password: String, repositoryID: String) throws {
-        guard let data = password.data(using: .utf8) else {
+        try save(password, account: repositoryID)
+    }
+
+    func saveCredentials(_ credentials: String, repositoryID: String) throws {
+        try save(credentials, account: "\(repositoryID).backend")
+    }
+
+    private func save(_ value: String, account: String) throws {
+        guard let data = value.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
 
-        let query = baseQuery(repositoryID: repositoryID)
+        let query = baseQuery(account: account)
         let attributes = [kSecValueData as String: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess {
@@ -43,7 +51,15 @@ struct KeychainStore: Sendable {
     }
 
     func password(repositoryID: String) throws -> String? {
-        var query = baseQuery(repositoryID: repositoryID)
+        try value(account: repositoryID)
+    }
+
+    func credentials(repositoryID: String) throws -> String? {
+        try value(account: "\(repositoryID).backend")
+    }
+
+    private func value(account: String) throws -> String? {
+        var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -62,17 +78,17 @@ struct KeychainStore: Sendable {
     }
 
     func removePassword(repositoryID: String) throws {
-        let status = SecItemDelete(baseQuery(repositoryID: repositoryID) as CFDictionary)
+        let status = SecItemDelete(baseQuery(account: repositoryID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.status(status)
         }
     }
 
-    private func baseQuery(repositoryID: String) -> [String: Any] {
+    private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: repositoryID,
+            kSecAttrAccount as String: account,
         ]
     }
 }

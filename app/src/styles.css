@@ -671,6 +671,47 @@ small {
     font-size: 10px;
 }
 
+.destination-kind {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 2px;
+    margin: 0;
+    border: 0;
+    border-radius: 7px;
+    background: var(--fill);
+}
+
+.destination-kind button {
+    min-height: 25px;
+    border-radius: 5px;
+    color: var(--secondary);
+    font-size: 9px;
+    font-weight: 550;
+}
+
+.destination-kind button.selected {
+    color: var(--label);
+    background: var(--material-strong);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+}
+
+.remote-credentials {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.remote-credentials label:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+.setup-hint {
+    width: 100%;
+    text-align: left;
+}
+
 .setup-state label {
     display: flex;
     width: 100%;

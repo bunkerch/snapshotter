@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -15,9 +16,14 @@ import (
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/service"
 	"github.com/restic/restic/internal/archiver"
+	backendpkg "github.com/restic/restic/internal/backend"
 	"github.com/restic/restic/internal/backend/local"
+	"github.com/restic/restic/internal/backend/rest"
+	"github.com/restic/restic/internal/backend/s3"
+	"github.com/restic/restic/internal/backend/sftp"
 	"github.com/restic/restic/internal/data"
 	"github.com/restic/restic/internal/fs"
+	"github.com/restic/restic/internal/options"
 	"github.com/restic/restic/internal/repository"
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/restorer"
@@ -31,10 +37,7 @@ type Repository struct {
 	repo *repository.Repository
 }
 
-func (r *Repository) Initialize(ctx context.Context, configured domain.Repository, password []byte) error {
-	if configured.Kind != domain.RepositoryLocal {
-		return fmt.Errorf("repository kind %q is not supported by this adapter", configured.Kind)
-	}
+func (r *Repository) Initialize(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) error {
 	if len(password) == 0 {
 		return errors.New("repository password is required")
 	}
@@ -45,7 +48,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 		return ErrRepositoryOpen
 	}
 
-	backend, err := local.Create(ctx, local.Config{Path: configured.Location, Connections: 2}, discardLog)
+	backend, err := openBackend(ctx, configured, credentials, true)
 	if err != nil {
 		return fmt.Errorf("create local backend: %w", err)
 	}
@@ -62,10 +65,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 	return nil
 }
 
-func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, password []byte) error {
-	if configured.Kind != domain.RepositoryLocal {
-		return fmt.Errorf("repository kind %q is not supported by this adapter", configured.Kind)
-	}
+func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) error {
 	if len(password) == 0 {
 		return errors.New("repository password is required")
 	}
@@ -76,7 +76,7 @@ func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, p
 		return ErrRepositoryOpen
 	}
 
-	backend, err := local.Open(ctx, local.Config{Path: configured.Location, Connections: 2}, discardLog)
+	backend, err := openBackend(ctx, configured, credentials, false)
 	if err != nil {
 		return fmt.Errorf("open local backend: %w", err)
 	}
@@ -91,6 +91,63 @@ func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, p
 	}
 	r.repo = repo
 	return nil
+}
+
+func openBackend(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, create bool) (backendpkg.Backend, error) {
+	switch configured.Kind {
+	case domain.RepositoryLocal:
+		cfg := local.Config{Path: configured.Location, Connections: 2}
+		if create {
+			return local.Create(ctx, cfg, discardLog)
+		}
+		return local.Open(ctx, cfg, discardLog)
+	case domain.RepositorySFTP:
+		cfg, err := sftp.ParseConfig(configured.Location)
+		if err != nil {
+			return nil, fmt.Errorf("parse SFTP destination: %w", err)
+		}
+		if create {
+			return sftp.Create(ctx, *cfg, discardLog)
+		}
+		return sftp.Open(ctx, *cfg, discardLog)
+	case domain.RepositoryS3:
+		cfg, err := s3.ParseConfig(configured.Location)
+		if err != nil {
+			return nil, fmt.Errorf("parse S3 destination: %w", err)
+		}
+		cfg.KeyID = credentials.AccessKey
+		cfg.Secret = options.NewSecretString(credentials.SecretKey)
+		cfg.Region = credentials.Region
+		transport, err := backendpkg.Transport(backendpkg.TransportOptions{HTTPUserAgent: "Snapshotter"})
+		if err != nil {
+			return nil, fmt.Errorf("configure S3 transport: %w", err)
+		}
+		if create {
+			return s3.Create(ctx, *cfg, transport, discardLog)
+		}
+		return s3.Open(ctx, *cfg, transport, discardLog)
+	case domain.RepositoryREST:
+		cfg, err := rest.ParseConfig(configured.Location)
+		if err != nil {
+			return nil, fmt.Errorf("parse REST destination: %w", err)
+		}
+		if cfg.URL.User != nil {
+			return nil, errors.New("REST credentials must be entered separately from the destination URL")
+		}
+		if credentials.Username != "" || credentials.Password != "" {
+			cfg.URL.User = url.UserPassword(credentials.Username, credentials.Password)
+		}
+		transport, err := backendpkg.Transport(backendpkg.TransportOptions{HTTPUserAgent: "Snapshotter"})
+		if err != nil {
+			return nil, fmt.Errorf("configure REST transport: %w", err)
+		}
+		if create {
+			return rest.Create(ctx, *cfg, transport, discardLog)
+		}
+		return rest.Open(ctx, *cfg, transport, discardLog)
+	default:
+		return nil, fmt.Errorf("repository kind %q is not supported", configured.Kind)
+	}
 }
 
 func (r *Repository) ID() (string, bool) {

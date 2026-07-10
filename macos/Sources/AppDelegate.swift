@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "app.quit": NSApp.terminate(nil)
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
+        case "repository.create.remote": createRemoteRepository(request: request, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
@@ -225,13 +226,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             Backend.shared.createRepository(
                 name: name,
+                kind: "local",
                 location: destination.path,
                 password: password,
+                credentials: [:],
                 requestID: request.id,
                 webView: webView
             )
         }
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func createRemoteRepository(request: BridgeRequest, webView: WKWebView?) {
+        guard let name = request.payload?.name, !name.isEmpty,
+              let kind = request.payload?.kind, ["s3", "sftp", "rest"].contains(kind),
+              let location = request.payload?.location, !location.isEmpty,
+              let password = request.payload?.password, !password.isEmpty else {
+            Backend.shared.fail("Name, destination, and encryption password are required", requestID: request.id, webView: webView)
+            return
+        }
+        Backend.shared.createRepository(
+            name: name,
+            kind: kind,
+            location: location,
+            password: password,
+            credentials: request.payload?.credentials ?? [:],
+            requestID: request.id,
+            webView: webView
+        )
     }
 
     private func unlockRepository(request: BridgeRequest, webView: WKWebView?) {
@@ -310,6 +332,9 @@ private struct BridgePayload: Decodable, Sendable {
     let url: String?
     let snapshotID: String?
     let path: String?
+    let kind: String?
+    let location: String?
+    let credentials: [String: String]?
 }
 
 private final class Backend: @unchecked Sendable {
@@ -359,12 +384,13 @@ private final class Backend: @unchecked Sendable {
         handle(request, requestID: requestID, webView: webView)
     }
 
-    func createRepository(name: String, location: String, password: String, requestID: String?, webView: WKWebView?) {
+    func createRepository(name: String, kind: String, location: String, password: String, credentials: [String: String], requestID: String?, webView: WKWebView?) {
         let repositoryID = UUID().uuidString.lowercased()
         let payload: [String: Any] = [
             "type": "repository.create",
             "payload": [
-                "repository": ["id": repositoryID, "name": name, "kind": "local", "location": location],
+                "repository": ["id": repositoryID, "name": name, "kind": kind, "location": location],
+                "credentials": credentials,
                 "password": password,
             ],
         ]
@@ -376,6 +402,11 @@ private final class Backend: @unchecked Sendable {
                 let response = try self.engine.get().handle(request)
                 if Self.isSuccessful(response) {
                     try self.keychain.savePassword(password, repositoryID: repositoryID)
+                    let credentialsData = try JSONSerialization.data(withJSONObject: credentials)
+                    guard let encodedCredentials = String(data: credentialsData, encoding: .utf8) else {
+                        throw EngineBridgeError.invalidResponse
+                    }
+                    try self.keychain.saveCredentials(encodedCredentials, repositoryID: repositoryID)
                 }
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {
@@ -391,7 +422,10 @@ private final class Backend: @unchecked Sendable {
                 guard let password = try self.keychain.password(repositoryID: repositoryID) else {
                     throw NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Repository password was not found in Keychain"])
                 }
-                let payload = ["type": "repository.unlock", "payload": ["password": password]] as [String: Any]
+                let encodedCredentials = try self.keychain.credentials(repositoryID: repositoryID) ?? "{}"
+                let credentialsData = Data(encodedCredentials.utf8)
+                let credentials = try JSONSerialization.jsonObject(with: credentialsData) as? [String: String] ?? [:]
+                let payload = ["type": "repository.unlock", "payload": ["password": password, "credentials": credentials]] as [String: Any]
                 let data = try JSONSerialization.data(withJSONObject: payload)
                 guard let request = String(data: data, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
                 let response = try self.engine.get().handle(request)

@@ -18,6 +18,14 @@ type Repository struct {
 	Location string         `json:"location"`
 }
 
+type RepositoryCredentials struct {
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	AccessKey string `json:"accessKey,omitempty"`
+	SecretKey string `json:"secretKey,omitempty"`
+	Region    string `json:"region,omitempty"`
+}
+
 type Source struct {
 	ID       string `json:"id"`
 	Path     string `json:"path"`

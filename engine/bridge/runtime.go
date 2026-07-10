@@ -326,13 +326,14 @@ func normalizeSourcePath(path string) (string, error) {
 
 func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
 	var input struct {
-		Repository domain.Repository `json:"repository"`
-		Password   string            `json:"password"`
+		Repository  domain.Repository            `json:"repository"`
+		Credentials domain.RepositoryCredentials `json:"credentials"`
+		Password    string                       `json:"password"`
 	}
 	if err := json.Unmarshal(payload, &input); err != nil {
 		return applicationState{}, fmt.Errorf("decode repository: %w", err)
 	}
-	if err := r.repository.Initialize(ctx, input.Repository, []byte(input.Password)); err != nil {
+	if err := r.repository.Initialize(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
 	}
 	preferences, err := r.store.Load()
@@ -350,7 +351,8 @@ func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage)
 
 func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
 	var input struct {
-		Password string `json:"password"`
+		Credentials domain.RepositoryCredentials `json:"credentials"`
+		Password    string                       `json:"password"`
 	}
 	if err := json.Unmarshal(payload, &input); err != nil {
 		return applicationState{}, fmt.Errorf("decode password: %w", err)
@@ -362,7 +364,7 @@ func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage)
 	if preferences.Repository == nil {
 		return applicationState{}, errors.New("repository is not configured")
 	}
-	if err := r.repository.Unlock(ctx, *preferences.Repository, []byte(input.Password)); err != nil {
+	if err := r.repository.Unlock(ctx, *preferences.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
 	}
 	return r.state(ctx)

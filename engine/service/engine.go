@@ -10,8 +10,8 @@ import (
 // Engine is the application-facing contract implemented by the embedded restic adapter.
 // Passwords are supplied per operation by the Keychain-backed native host.
 type Engine interface {
-	Initialize(context.Context, domain.Repository, []byte) error
-	Unlock(context.Context, domain.Repository, []byte) error
+	Initialize(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
+	Unlock(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
 	Backup(context.Context, []domain.Source, ProgressSink) (domain.Snapshot, error)
 	Snapshots(context.Context) ([]domain.Snapshot, error)
 	List(context.Context, string, string) ([]domain.Entry, error)

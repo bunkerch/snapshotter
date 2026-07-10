@@ -2,6 +2,11 @@
 
 A native macOS menu bar backup manager powered by restic.
 
+Snapshotter supports local folders, S3-compatible object storage, SFTP, and
+rest-server destinations. Repository encryption passwords and remote service
+credentials are stored in macOS Keychain. SFTP uses the system SSH agent,
+configuration, and keys.
+
 ## Project layout
 
 - `app/` — React and TypeScript interface

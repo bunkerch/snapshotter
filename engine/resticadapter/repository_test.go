@@ -21,7 +21,7 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	password := []byte("correct horse battery staple")
 
 	creator := &Repository{}
-	if err := creator.Initialize(context.Background(), configured, password); err != nil {
+	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, password); err != nil {
 		t.Fatal(err)
 	}
 	createdID, ok := creator.ID()
@@ -33,7 +33,7 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	}
 
 	opener := &Repository{}
-	if err := opener.Unlock(context.Background(), configured, password); err != nil {
+	if err := opener.Unlock(context.Background(), configured, domain.RepositoryCredentials{}, password); err != nil {
 		t.Fatal(err)
 	}
 	openedID, ok := opener.ID()
@@ -62,7 +62,7 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 		Location: repositoryPath,
 	}
 	adapter := &Repository{}
-	if err := adapter.Initialize(context.Background(), configured, []byte("backup password")); err != nil {
+	if err := adapter.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("backup password")); err != nil {
 		t.Fatal(err)
 	}
 	defer adapter.Close()
@@ -174,7 +174,7 @@ func TestUnlockRejectsWrongPassword(t *testing.T) {
 		Location: t.TempDir(),
 	}
 	creator := &Repository{}
-	if err := creator.Initialize(context.Background(), configured, []byte("right password")); err != nil {
+	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("right password")); err != nil {
 		t.Fatal(err)
 	}
 	if err := creator.Close(); err != nil {
@@ -182,7 +182,29 @@ func TestUnlockRejectsWrongPassword(t *testing.T) {
 	}
 
 	opener := &Repository{}
-	if err := opener.Unlock(context.Background(), configured, []byte("wrong password")); err == nil {
+	if err := opener.Unlock(context.Background(), configured, domain.RepositoryCredentials{}, []byte("wrong password")); err == nil {
 		t.Fatal("expected wrong password to fail")
+	}
+}
+
+func TestRemoteRepositoryLocationsRejectInvalidOrEmbeddedCredentials(t *testing.T) {
+	tests := []struct {
+		name        string
+		kind        domain.RepositoryKind
+		location    string
+		wantMessage string
+	}{
+		{name: "s3", kind: domain.RepositoryS3, location: "not-s3", wantMessage: "parse S3 destination"},
+		{name: "sftp", kind: domain.RepositorySFTP, location: "not-sftp", wantMessage: "parse SFTP destination"},
+		{name: "rest credentials", kind: domain.RepositoryREST, location: "rest:https://user:secret@example.com/archive", wantMessage: "entered separately"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configured := domain.Repository{Kind: test.kind, Location: test.location}
+			_, err := openBackend(context.Background(), configured, domain.RepositoryCredentials{}, false)
+			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("openBackend() error = %v, want containing %q", err, test.wantMessage)
+			}
+		})
 	}
 }

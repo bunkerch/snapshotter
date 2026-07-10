@@ -198,6 +198,13 @@ function Setup({
 }) {
     const [name, setName] = useState("My Backup")
     const [password, setPassword] = useState("")
+    const [kind, setKind] = useState<"local" | "s3" | "sftp" | "rest">("local")
+    const [location, setLocation] = useState("")
+    const [username, setUsername] = useState("")
+    const [backendPassword, setBackendPassword] = useState("")
+    const [accessKey, setAccessKey] = useState("")
+    const [secretKey, setSecretKey] = useState("")
+    const [region, setRegion] = useState("")
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
 
@@ -206,8 +213,22 @@ function Setup({
         try {
             onComplete(
                 await requestNative<ApplicationState>(
-                    "repository.create.choose",
-                    { name, password },
+                    kind === "local"
+                        ? "repository.create.choose"
+                        : "repository.create.remote",
+                    {
+                        name,
+                        password,
+                        kind,
+                        location,
+                        credentials: {
+                            username,
+                            password: backendPassword,
+                            accessKey,
+                            secretKey,
+                            region,
+                        },
+                    },
                 ),
             )
         } catch (requestError) {
@@ -224,6 +245,21 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
+            <fieldset
+                className="destination-kind"
+                aria-label="Destination type"
+            >
+                {(["local", "s3", "sftp", "rest"] as const).map((option) => (
+                    <button
+                        type="button"
+                        className={kind === option ? "selected" : ""}
+                        key={option}
+                        onClick={() => setKind(option)}
+                    >
+                        {option === "local" ? "Folder" : option.toUpperCase()}
+                    </button>
+                ))}
+            </fieldset>
             <label>
                 Name
                 <input
@@ -239,14 +275,97 @@ function Setup({
                     onChange={(event) => setPassword(event.target.value)}
                 />
             </label>
+            {kind !== "local" && (
+                <label>
+                    Destination
+                    <input
+                        value={location}
+                        placeholder={destinationPlaceholder(kind)}
+                        onChange={(event) => setLocation(event.target.value)}
+                        spellCheck={false}
+                    />
+                </label>
+            )}
+            {kind === "s3" && (
+                <div className="remote-credentials">
+                    <label>
+                        Access key
+                        <input
+                            value={accessKey}
+                            onChange={(event) =>
+                                setAccessKey(event.target.value)
+                            }
+                            autoComplete="off"
+                        />
+                    </label>
+                    <label>
+                        Secret key
+                        <input
+                            type="password"
+                            value={secretKey}
+                            onChange={(event) =>
+                                setSecretKey(event.target.value)
+                            }
+                            autoComplete="off"
+                        />
+                    </label>
+                    <label>
+                        Region <small>Optional</small>
+                        <input
+                            value={region}
+                            onChange={(event) => setRegion(event.target.value)}
+                            placeholder="us-east-1"
+                        />
+                    </label>
+                </div>
+            )}
+            {kind === "rest" && (
+                <div className="remote-credentials">
+                    <label>
+                        Username <small>Optional</small>
+                        <input
+                            value={username}
+                            onChange={(event) =>
+                                setUsername(event.target.value)
+                            }
+                            autoComplete="off"
+                        />
+                    </label>
+                    <label>
+                        Server password <small>Optional</small>
+                        <input
+                            type="password"
+                            value={backendPassword}
+                            onChange={(event) =>
+                                setBackendPassword(event.target.value)
+                            }
+                            autoComplete="off"
+                        />
+                    </label>
+                </div>
+            )}
+            {kind === "sftp" && (
+                <small className="setup-hint">
+                    Uses your macOS SSH configuration, agent, and keys.
+                </small>
+            )}
             {error && <span className="form-error">{error}</span>}
             <button
                 type="button"
                 className="primary-button setup-button"
-                disabled={!name || !password || busy}
+                disabled={
+                    !name ||
+                    !password ||
+                    busy ||
+                    (kind !== "local" && !location)
+                }
                 onClick={create}
             >
-                {busy ? "Creating…" : "Choose destination…"}
+                {busy
+                    ? "Creating…"
+                    : kind === "local"
+                      ? "Choose destination…"
+                      : "Create repository"}
             </button>
         </section>
     )
@@ -1059,6 +1178,11 @@ function Settings({
 
 function message(error: unknown) {
     return error instanceof Error ? error.message : "Something went wrong"
+}
+function destinationPlaceholder(kind: "s3" | "sftp" | "rest") {
+    if (kind === "s3") return "s3:s3.amazonaws.com/bucket/snapshotter"
+    if (kind === "sftp") return "sftp:user@host:/backups/snapshotter"
+    return "rest:https://backup.example.com/snapshotter"
 }
 function basename(path: string) {
     return path.split("/").filter(Boolean).at(-1) ?? path

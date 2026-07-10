@@ -105,6 +105,52 @@ describe("Snapshotter app", () => {
         expect(screen.queryByRole("navigation")).toBeNull()
     })
 
+    it("configures an S3 repository without persisting credentials in UI state", async () => {
+        vi.mocked(requestNative).mockResolvedValueOnce({
+            ...readyState,
+            status: "unconfigured",
+            preferences: {
+                ...readyState.preferences,
+                repository: undefined,
+                sources: [],
+            },
+            snapshots: [],
+        })
+        render(<App />)
+        await screen.findByText("Set up your backup")
+
+        fireEvent.click(screen.getByRole("button", { name: "S3" }))
+        fireEvent.change(screen.getByLabelText("Password"), {
+            target: { value: "repository-secret" },
+        })
+        fireEvent.change(screen.getByLabelText("Destination"), {
+            target: { value: "s3:s3.amazonaws.com/archive/snapshotter" },
+        })
+        fireEvent.change(screen.getByLabelText("Access key"), {
+            target: { value: "access" },
+        })
+        fireEvent.change(screen.getByLabelText("Secret key"), {
+            target: { value: "secret" },
+        })
+        fireEvent.click(
+            screen.getByRole("button", { name: "Create repository" }),
+        )
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "repository.create.remote",
+                expect.objectContaining({
+                    kind: "s3",
+                    location: "s3:s3.amazonaws.com/archive/snapshotter",
+                    credentials: expect.objectContaining({
+                        accessKey: "access",
+                        secretKey: "secret",
+                    }),
+                }),
+            )
+        })
+    })
+
     it("renders persisted sources and browses real snapshot entries", async () => {
         render(<App />)
 
