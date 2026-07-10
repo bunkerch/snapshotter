@@ -21,6 +21,7 @@ import (
 	"github.com/restic/restic/internal/repository"
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/restorer"
+	"github.com/restic/restic/internal/ui/progress"
 )
 
 var ErrRepositoryOpen = errors.New("a repository is already open")
@@ -227,6 +228,25 @@ func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error
 	return nil
 }
 
+func (r *Repository) RepairIndex(ctx context.Context, sink service.ProgressSink) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return errors.New("repository is not open")
+	}
+	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	if err != nil {
+		return fmt.Errorf("lock repository for index repair: %w", err)
+	}
+	defer unlocker.Unlock()
+	emitProgress(sink, service.Progress{Phase: "repairing-index"})
+	if err := repository.RepairIndex(lockContext, r.repo, repository.RepairIndexOptions{}, &progress.NoopPrinter{}); err != nil {
+		return fmt.Errorf("repair repository index: %w", err)
+	}
+	emitProgress(sink, service.Progress{Phase: "complete", Fraction: 1})
+	return nil
+}
+
 func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -272,6 +292,33 @@ func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) 
 				return fmt.Errorf("remove expired snapshot %s: %w", snapshot.ID().Str(), err)
 			}
 		}
+	}
+	if err := r.repo.LoadIndex(ctx, nil); err != nil {
+		return fmt.Errorf("load index for pruning: %w", err)
+	}
+	printer := &progress.NoopPrinter{}
+	plan, err := repository.PlanPrune(ctx, repository.PruneOptions{
+		MaxUnusedBytes: func(used uint64) uint64 { return used / 20 },
+	}, r.repo, func(ctx context.Context, repo restic.Repository, usedBlobs restic.FindBlobSet) error {
+		var trees restic.IDs
+		if err := data.ForAllSnapshots(ctx, repo, repo, nil, func(_ restic.ID, snapshot *data.Snapshot, loadErr error) error {
+			if loadErr != nil {
+				return loadErr
+			}
+			if snapshot.Tree != nil {
+				trees = append(trees, *snapshot.Tree)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		return data.FindUsedBlobs(ctx, repo, trees, usedBlobs, nil)
+	}, printer)
+	if err != nil {
+		return fmt.Errorf("plan repository prune: %w", err)
+	}
+	if err := plan.Execute(ctx, printer); err != nil {
+		return fmt.Errorf("prune repository: %w", err)
 	}
 	return nil
 }

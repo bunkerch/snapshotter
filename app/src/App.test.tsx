@@ -139,6 +139,9 @@ describe("Snapshotter app", () => {
                     name: "Toggle start at login",
                 }).disabled,
             ).toBe(true)
+            expect(
+                screen.getByRole("button", { name: /Repair index/ }),
+            ).toBeTruthy()
         })
     })
 })

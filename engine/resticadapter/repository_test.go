@@ -94,6 +94,12 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if err := adapter.Check(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := adapter.RepairIndex(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.Check(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
 	entries, err := adapter.List(context.Background(), snapshot.ID, sourcePath)
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +143,13 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	}
 	if len(retained) != 1 {
 		t.Fatalf("retained %d snapshots, want 1", len(retained))
+	}
+	if err := adapter.Check(context.Background(), nil); err != nil {
+		t.Fatalf("check pruned repository: %v", err)
+	}
+	postPruneDestination := t.TempDir()
+	if _, err := adapter.Restore(context.Background(), retained[0].ID, filepath.Join(sourcePath, "hello.txt"), postPruneDestination); err != nil {
+		t.Fatalf("restore retained snapshot after prune: %v", err)
 	}
 }
 

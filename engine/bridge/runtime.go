@@ -78,6 +78,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.setLaunchAtLogin(req.Payload)
 	case "repository.check":
 		data, err = r.checkRepository(ctx)
+	case "repository.repairIndex":
+		data, err = r.repairRepositoryIndex(ctx)
 	case "snapshot.list":
 		data, err = r.listSnapshot(ctx, req.Payload)
 	case "snapshot.restore":
@@ -131,6 +133,21 @@ func (r *runtime) checkRepository(ctx context.Context) (applicationState, error)
 	defer done()
 	if err := r.repository.Check(operationContext, nil); err != nil {
 		return applicationState{}, err
+	}
+	return r.state(ctx)
+}
+
+func (r *runtime) repairRepositoryIndex(ctx context.Context) (applicationState, error) {
+	operationContext, done, err := r.coordinator.Start(ctx)
+	if err != nil {
+		return applicationState{}, err
+	}
+	defer done()
+	if err := r.repository.RepairIndex(operationContext, nil); err != nil {
+		return applicationState{}, err
+	}
+	if err := r.repository.Check(operationContext, nil); err != nil {
+		return applicationState{}, fmt.Errorf("verify repaired repository: %w", err)
 	}
 	return r.state(ctx)
 }

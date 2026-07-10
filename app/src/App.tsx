@@ -686,6 +686,7 @@ function Settings({
     const [retentionOpen, setRetentionOpen] = useState(false)
     const [retention, setRetention] = useState(preferences.retention)
     const [checking, setChecking] = useState(false)
+    const [repairing, setRepairing] = useState(false)
     const [checkResult, setCheckResult] = useState<string>()
     const [acknowledgementsOpen, setAcknowledgementsOpen] = useState(false)
     const [settingsError, setSettingsError] = useState<string>()
@@ -732,6 +733,21 @@ function Settings({
             setCheckResult(message(error))
         } finally {
             setChecking(false)
+        }
+    }
+
+    const repairRepositoryIndex = async () => {
+        setRepairing(true)
+        setCheckResult(undefined)
+        try {
+            onState(
+                await requestNative<ApplicationState>("repository.repairIndex"),
+            )
+            setCheckResult("Index repaired and verified")
+        } catch (error) {
+            setCheckResult(message(error))
+        } finally {
+            setRepairing(false)
         }
     }
 
@@ -914,6 +930,20 @@ function Settings({
                         {checking ? "Checking…" : "Check repository"}
                     </strong>
                     {checkResult && <small>{checkResult}</small>}
+                </span>
+            </button>
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => void repairRepositoryIndex()}
+                disabled={checking || repairing}
+            >
+                <Wrench size={17} />
+                <span>
+                    <strong>
+                        {repairing ? "Repairing index…" : "Repair index"}
+                    </strong>
+                    <small>Rebuild repository metadata from stored packs</small>
                 </span>
             </button>
             <h3>About</h3>
