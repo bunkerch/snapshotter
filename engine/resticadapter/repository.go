@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/restic/restic/app/domain"
+	"github.com/restic/restic/app/service"
+	"github.com/restic/restic/internal/archiver"
 	"github.com/restic/restic/internal/backend/local"
+	"github.com/restic/restic/internal/data"
+	"github.com/restic/restic/internal/fs"
 	"github.com/restic/restic/internal/repository"
 	"github.com/restic/restic/internal/restic"
 )
@@ -90,6 +96,65 @@ func (r *Repository) ID() (string, bool) {
 	return r.repo.Config().ID, true
 }
 
+func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink service.ProgressSink) (domain.Snapshot, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return domain.Snapshot{}, errors.New("repository is not open")
+	}
+
+	targets := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if source.Enabled && !source.Excluded {
+			targets = append(targets, source.Path)
+		}
+	}
+	if len(targets) == 0 {
+		return domain.Snapshot{}, errors.New("at least one backup source must be enabled")
+	}
+	if err := r.repo.LoadIndex(ctx, nil); err != nil {
+		return domain.Snapshot{}, fmt.Errorf("load repository index: %w", err)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return domain.Snapshot{}, fmt.Errorf("read hostname: %w", err)
+	}
+	started := time.Now()
+	progress := service.Progress{Phase: "backing-up"}
+	backup := archiver.New(r.repo, fs.Local{}, archiver.Options{})
+	backup.Error = func(_ string, itemErr error) error { return itemErr }
+	backup.CompleteItem = func(_ string, _, current *data.Node, _ archiver.ItemStats, _ time.Duration) {
+		if current == nil {
+			return
+		}
+		progress.FilesDone++
+		progress.BytesDone += current.Size
+		emitProgress(sink, progress)
+	}
+
+	snapshot, id, _, err := backup.Snapshot(ctx, targets, archiver.SnapshotOptions{
+		BackupStart:    started,
+		Time:           started,
+		Hostname:       hostname,
+		ProgramVersion: "Restic App",
+	})
+	if err != nil {
+		return domain.Snapshot{}, fmt.Errorf("save snapshot: %w", err)
+	}
+	progress.Phase = "complete"
+	progress.Fraction = 1
+	emitProgress(sink, progress)
+
+	return domain.Snapshot{
+		ID:       id.String(),
+		Time:     snapshot.Time,
+		Hostname: snapshot.Hostname,
+		Paths:    append([]string(nil), snapshot.Paths...),
+		Tags:     append([]string(nil), snapshot.Tags...),
+	}, nil
+}
+
 func (r *Repository) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -102,3 +167,9 @@ func (r *Repository) Close() error {
 }
 
 func discardLog(string, ...interface{}) {}
+
+func emitProgress(sink service.ProgressSink, progress service.Progress) {
+	if sink != nil {
+		sink(progress)
+	}
+}

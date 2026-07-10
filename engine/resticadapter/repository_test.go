@@ -2,9 +2,12 @@ package resticadapter
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/restic/restic/app/domain"
+	"github.com/restic/restic/app/service"
 )
 
 func TestInitializeAndUnlockLocalRepository(t *testing.T) {
@@ -38,6 +41,47 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	}
 	if err := opener.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBackupCreatesSnapshot(t *testing.T) {
+	repositoryPath := filepath.Join(t.TempDir(), "repository")
+	sourcePath := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(sourcePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourcePath, "hello.txt"), []byte("hello from restic app"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	configured := domain.Repository{
+		ID:       "test",
+		Name:     "Test Repository",
+		Kind:     domain.RepositoryLocal,
+		Location: repositoryPath,
+	}
+	adapter := &Repository{}
+	if err := adapter.Initialize(context.Background(), configured, []byte("backup password")); err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+
+	var progress []service.Progress
+	snapshot, err := adapter.Backup(context.Background(), []domain.Source{{
+		ID:      "source",
+		Path:    sourcePath,
+		Enabled: true,
+	}}, func(update service.Progress) {
+		progress = append(progress, update)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ID == "" || len(snapshot.Paths) != 1 || snapshot.Paths[0] != sourcePath {
+		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	}
+	if len(progress) == 0 || progress[len(progress)-1].Phase != "complete" {
+		t.Fatalf("unexpected progress: %#v", progress)
 	}
 }
 
