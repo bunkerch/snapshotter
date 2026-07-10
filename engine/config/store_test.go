@@ -1,12 +1,35 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/restic/restic/app/domain"
 )
+
+func TestStoreMigratesLegacyHourlyPolicies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "preferences.json")
+	preferences := domain.DefaultPreferences()
+	preferences.Schedule.Kind = domain.ScheduleHourly
+	preferences.Schedule.Interval = 2
+	preferences.Retention.Hourly = 24
+	encoded, err := json.Marshal(preferences)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Schedule.Kind != domain.ScheduleDaily || loaded.Retention.Hourly != 0 {
+		t.Fatalf("legacy hourly policy was not migrated: %#v", loaded)
+	}
+}
 
 func TestStoreReturnsDefaultsWhenMissing(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "preferences.json"))

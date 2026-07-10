@@ -39,6 +39,9 @@ func (s *Store) Load() (domain.Preferences, error) {
 	if preferences.Schedule.Kind == domain.ScheduleHourly {
 		preferences.Schedule = domain.DefaultPreferences().Schedule
 	}
+	// Hourly retention was removed from the product policy. Clear the legacy
+	// value so the visible daily/weekly/monthly settings match enforcement.
+	preferences.Retention.Hourly = 0
 	if err := Validate(preferences); err != nil {
 		return domain.Preferences{}, err
 	}

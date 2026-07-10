@@ -78,7 +78,7 @@ func DefaultPreferences() Preferences {
 			Hour:     9,
 		},
 		Retention: RetentionPolicy{
-			Hourly:  24,
+			Hourly:  0,
 			Daily:   7,
 			Weekly:  4,
 			Monthly: 12,
