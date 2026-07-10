@@ -3,6 +3,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .build/
+engine/build/
 .swiftpm/
 .DS_Store
 *.xcarchive
