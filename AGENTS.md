@@ -31,7 +31,7 @@ Biome is authoritative for JavaScript, TypeScript, JSON, and Markdown: four-spac
 
 ## Testing Guidelines
 
-Place TypeScript tests beside their subject as `*.test.ts(x)` and Go tests as `*_test.go`. New repository behavior should use temporary real restic repositories rather than CLI mocks. Run frontend tests, the production build, and `go test -race ./...` before opening a pull request. Native changes must pass `swift build --package-path macos`.
+Place TypeScript tests beside their subject as `*.test.ts(x)` and Go tests as `*_test.go`. New repository behavior should use temporary real restic repositories rather than CLI mocks. Run frontend tests, the production build, and `go test -race ./...` before opening a pull request. Native changes must pass `swift build --package-path macos`. Run `make verify` before a release; it also assembles and validates the signed application and installer image.
 
 ## Commit & Pull Request Guidelines
 

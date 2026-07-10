@@ -55,6 +55,15 @@ swift build --package-path macos
 cd engine && go test -race ./...
 ```
 
+Before publishing a change, run the complete release gate:
+
+```sh
+make verify
+```
+
+This checks Biome, UI tests, the production frontend, Go race tests, strict
+Swift compilation, app signing, the bundle plist, and DMG integrity.
+
 The host loads the Vite server in debug builds. Release packaging will bundle the
 generated web assets into the application.
 
