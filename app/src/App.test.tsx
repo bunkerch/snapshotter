@@ -237,6 +237,20 @@ describe("Snapshotter app", () => {
             }),
         )
         fireEvent.click(screen.getByRole("button", { name: /Smart retention/ }))
+        fireEvent.click(
+            screen.getByRole("button", { name: /Change repository/ }),
+        )
+
+        expect(
+            screen.getByText(/Stored snapshots remain untouched/),
+        ).toBeTruthy()
+        fireEvent.click(screen.getByRole("button", { name: "Disconnect" }))
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "repository.disconnect",
+                { repositoryID: "repository" },
+            )
+        })
 
         expect(
             screen.getByText(/Applied after every successful backup/),

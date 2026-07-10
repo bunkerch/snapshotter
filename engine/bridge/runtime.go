@@ -72,6 +72,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.connectRepository(ctx, req.Payload)
 	case "repository.unlock":
 		data, err = r.unlockRepository(ctx, req.Payload)
+	case "repository.disconnect":
+		data, err = r.disconnectRepository()
 	case "backup.start":
 		data, err = r.backup(ctx)
 	case "schedule.set":
@@ -99,6 +101,21 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		return failed(err)
 	}
 	return response{OK: true, Data: data}
+}
+
+func (r *runtime) disconnectRepository() (applicationState, error) {
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	if err := r.repository.Close(); err != nil {
+		return applicationState{}, fmt.Errorf("close repository: %w", err)
+	}
+	preferences.Repository = nil
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
 }
 
 func (r *runtime) deleteSnapshot(ctx context.Context, payload json.RawMessage) (applicationState, error) {

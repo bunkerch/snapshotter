@@ -570,7 +570,8 @@ small {
 }
 
 .destructive-button,
-.delete-confirmation button {
+.delete-confirmation button,
+.disconnect-confirmation button {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -585,21 +586,29 @@ small {
     background: light-dark(rgb(255 59 48 / 9%), rgb(255 69 58 / 14%));
 }
 
-.delete-confirmation {
+.delete-confirmation,
+.disconnect-confirmation {
     display: flex;
     width: 100%;
     align-items: center;
     gap: 5px;
 }
 
-.delete-confirmation span {
+.delete-confirmation span,
+.disconnect-confirmation span {
     flex: 1;
     color: var(--secondary);
     font-size: 9px;
 }
 
-.delete-confirmation button:not(.destructive-button) {
+.delete-confirmation button:not(.destructive-button),
+.disconnect-confirmation button:not(.destructive-button) {
     color: var(--secondary);
+}
+
+.disconnect-confirmation {
+    padding: 7px 5px;
+    border-bottom: 1px solid var(--separator);
 }
 
 .settings-page h3 {

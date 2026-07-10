@@ -103,6 +103,14 @@ func TestConnectExistingRepository(t *testing.T) {
 	if state.Status != "ready" || state.Preferences.Repository == nil || state.Preferences.Repository.Location != repositoryPath {
 		t.Fatalf("unexpected connected state: %#v", state)
 	}
+	result = runtime.handle(context.Background(), []byte(`{"type":"repository.disconnect"}`))
+	if !result.OK {
+		t.Fatal(result.Error)
+	}
+	state = result.Data.(applicationState)
+	if state.Status != "unconfigured" || state.Preferences.Repository != nil {
+		t.Fatalf("unexpected disconnected state: %#v", state)
+	}
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {

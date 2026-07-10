@@ -949,6 +949,7 @@ function Settings({
     const [repairing, setRepairing] = useState(false)
     const [checkResult, setCheckResult] = useState<string>()
     const [acknowledgementsOpen, setAcknowledgementsOpen] = useState(false)
+    const [disconnectOpen, setDisconnectOpen] = useState(false)
     const [settingsError, setSettingsError] = useState<string>()
     const packaged = isPackagedHost()
 
@@ -1011,6 +1012,21 @@ function Settings({
         }
     }
 
+    const disconnectRepository = async () => {
+        const repositoryID = preferences.repository?.id
+        if (!repositoryID) return
+        try {
+            onState(
+                await requestNative<ApplicationState>("repository.disconnect", {
+                    repositoryID,
+                }),
+            )
+        } catch (error) {
+            setSettingsError(message(error))
+            setDisconnectOpen(false)
+        }
+    }
+
     const timeValue = `${String(preferences.schedule.hour).padStart(2, "0")}:${String(preferences.schedule.minute).padStart(2, "0")}`
     return (
         <section className="page settings-page">
@@ -1025,6 +1041,39 @@ function Settings({
                     <small>{preferences.repository?.location}</small>
                 </span>
             </div>
+            {!disconnectOpen ? (
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() => setDisconnectOpen(true)}
+                >
+                    <span>
+                        <strong>Change repository</strong>
+                        <small>Your backup data will not be deleted</small>
+                    </span>
+                    <ChevronRight size={15} />
+                </button>
+            ) : (
+                <div className="disconnect-confirmation">
+                    <span>
+                        Disconnect this repository? Stored snapshots remain
+                        untouched.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setDisconnectOpen(false)}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="destructive-button"
+                        onClick={() => void disconnectRepository()}
+                    >
+                        Disconnect
+                    </button>
+                </div>
+            )}
             <h3>Schedule</h3>
             <div className="settings-card">
                 <label>

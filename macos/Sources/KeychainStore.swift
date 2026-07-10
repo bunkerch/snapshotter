@@ -84,6 +84,13 @@ struct KeychainStore: Sendable {
         }
     }
 
+    func removeCredentials(repositoryID: String) throws {
+        let status = SecItemDelete(baseQuery(account: "\(repositoryID).backend") as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.status(status)
+        }
+    }
+
     private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,

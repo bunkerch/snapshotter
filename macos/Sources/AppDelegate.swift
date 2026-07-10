@@ -130,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.create.remote": configureRemoteRepository(request: request, create: true, webView: message.webView)
         case "repository.open.remote": configureRemoteRepository(request: request, create: false, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
+        case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
@@ -266,6 +267,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             return
         }
         Backend.shared.unlockRepository(repositoryID: repositoryID, requestID: request.id, webView: webView)
+    }
+
+    private func disconnectRepository(request: BridgeRequest, raw: String, webView: WKWebView?) {
+        guard let repositoryID = request.payload?.repositoryID else {
+            Backend.shared.fail("Repository identifier is missing", requestID: request.id, webView: webView)
+            return
+        }
+        Backend.shared.disconnectRepository(repositoryID: repositoryID, request: raw, requestID: request.id, webView: webView)
     }
 
     private func setLaunchAtLogin(enabled: Bool, request: String, requestID: String?, webView: WKWebView?) {
@@ -433,6 +442,22 @@ private final class Backend: @unchecked Sendable {
                 let data = try JSONSerialization.data(withJSONObject: payload)
                 guard let request = String(data: data, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
                 let response = try self.engine.get().handle(request)
+                Self.respond(response, requestID: requestID, reference: reference)
+            } catch {
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
+        }
+    }
+
+    func disconnectRepository(repositoryID: String, request: String, requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        queue.async {
+            do {
+                let response = try self.engine.get().handle(request)
+                if Self.isSuccessful(response) {
+                    try self.keychain.removePassword(repositoryID: repositoryID)
+                    try self.keychain.removeCredentials(repositoryID: repositoryID)
+                }
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
