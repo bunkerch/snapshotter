@@ -67,7 +67,6 @@ button {
 .titlebar,
 .brand,
 .section-title,
-.page-heading,
 footer {
     display: flex;
     align-items: center;
@@ -180,16 +179,14 @@ footer {
     }
 }
 
-.hero-copy h1,
-.page h1 {
+.hero-copy h1 {
     margin: 0 0 2px;
     font-size: 14px;
     font-weight: 650;
     letter-spacing: -0.015em;
 }
 
-.hero-copy p,
-.page-heading p {
+.hero-copy p {
     margin: 0;
     color: var(--secondary);
     font-size: 10px;
