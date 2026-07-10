@@ -293,6 +293,31 @@ func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) 
 			}
 		}
 	}
+	return r.pruneLocked(ctx)
+}
+
+func (r *Repository) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return errors.New("repository is not open")
+	}
+	id, err := restic.Find(ctx, r.repo, restic.SnapshotFile, snapshotID)
+	if err != nil {
+		return fmt.Errorf("find snapshot: %w", err)
+	}
+	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	if err != nil {
+		return fmt.Errorf("lock repository to delete snapshot: %w", err)
+	}
+	defer unlocker.Unlock()
+	if err := r.repo.RemoveUnpacked(lockContext, restic.WriteableSnapshotFile, id); err != nil {
+		return fmt.Errorf("delete snapshot %s: %w", id.Str(), err)
+	}
+	return r.pruneLocked(lockContext)
+}
+
+func (r *Repository) pruneLocked(ctx context.Context) error {
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return fmt.Errorf("load index for pruning: %w", err)
 	}

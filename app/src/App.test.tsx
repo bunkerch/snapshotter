@@ -117,6 +117,17 @@ describe("Snapshotter app", () => {
             snapshotID: "abcdef0123456789",
             path: "/",
         })
+
+        fireEvent.click(screen.getByRole("button", { name: "Delete snapshot" }))
+        expect(
+            screen.getByText("Delete this snapshot and reclaim its space?"),
+        ).toBeTruthy()
+        fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("snapshot.delete", {
+                snapshotID: "abcdef0123456789",
+            })
+        })
     })
 
     it("opens retention settings and explains packaged-only login", async () => {

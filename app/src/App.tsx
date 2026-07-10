@@ -14,6 +14,7 @@ import {
     Search,
     Settings2,
     ShieldCheck,
+    Trash2,
     Wrench,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
@@ -116,7 +117,10 @@ export function App() {
                     />
                 )}
                 {state?.status === "ready" && view === "snapshots" && (
-                    <Snapshots snapshots={state.snapshots} />
+                    <Snapshots
+                        snapshots={state.snapshots}
+                        onState={(next) => setState(normalizeState(next))}
+                    />
                 )}
                 {state?.status === "ready" && view === "settings" && (
                     <Settings
@@ -482,7 +486,13 @@ function SectionTitle({
     )
 }
 
-function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
+function Snapshots({
+    snapshots,
+    onState,
+}: {
+    snapshots: Snapshot[]
+    onState: (state: ApplicationState) => void
+}) {
     const [query, setQuery] = useState("")
     const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot>()
     const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -497,6 +507,10 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
             <SnapshotBrowser
                 snapshot={selectedSnapshot}
                 onBack={() => setSelectedSnapshot(undefined)}
+                onDeleted={(state) => {
+                    setSelectedSnapshot(undefined)
+                    onState(state)
+                }}
             />
         )
     }
@@ -552,15 +566,19 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
 function SnapshotBrowser({
     snapshot,
     onBack,
+    onDeleted,
 }: {
     snapshot: Snapshot
     onBack: () => void
+    onDeleted: (state: ApplicationState) => void
 }) {
     const [path, setPath] = useState("/")
     const [entries, setEntries] = useState<SnapshotEntry[]>([])
     const [selected, setSelected] = useState<SnapshotEntry>()
     const [loading, setLoading] = useState(true)
     const [status, setStatus] = useState<string>()
+    const [confirmDelete, setConfirmDelete] = useState(false)
+    const [deleting, setDeleting] = useState(false)
 
     useEffect(() => {
         let active = true
@@ -597,6 +615,22 @@ function SnapshotBrowser({
             )
         } catch (error) {
             setStatus(message(error))
+        }
+    }
+
+    const deleteSnapshot = async () => {
+        setDeleting(true)
+        setStatus(undefined)
+        try {
+            onDeleted(
+                await requestNative<ApplicationState>("snapshot.delete", {
+                    snapshotID: snapshot.id,
+                }),
+            )
+        } catch (error) {
+            setStatus(message(error))
+            setConfirmDelete(false)
+            setDeleting(false)
         }
     }
 
@@ -669,6 +703,37 @@ function SnapshotBrowser({
                             {entry.type === "dir" && <ChevronRight size={14} />}
                         </button>
                     ))}
+            </div>
+            <div className="snapshot-actions">
+                {!confirmDelete ? (
+                    <button
+                        type="button"
+                        className="destructive-button"
+                        onClick={() => setConfirmDelete(true)}
+                    >
+                        <Trash2 size={13} />
+                        Delete snapshot
+                    </button>
+                ) : (
+                    <div className="delete-confirmation">
+                        <span>Delete this snapshot and reclaim its space?</span>
+                        <button
+                            type="button"
+                            onClick={() => setConfirmDelete(false)}
+                            disabled={deleting}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="destructive-button"
+                            onClick={() => void deleteSnapshot()}
+                            disabled={deleting}
+                        >
+                            {deleting ? "Deleting…" : "Delete"}
+                        </button>
+                    </div>
+                )}
             </div>
             {status && <div className="restore-status">{status}</div>}
         </section>

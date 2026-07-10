@@ -151,6 +151,19 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if _, err := adapter.Restore(context.Background(), retained[0].ID, filepath.Join(sourcePath, "hello.txt"), postPruneDestination); err != nil {
 		t.Fatalf("restore retained snapshot after prune: %v", err)
 	}
+	if err := adapter.DeleteSnapshot(context.Background(), retained[0].ID); err != nil {
+		t.Fatalf("delete retained snapshot: %v", err)
+	}
+	remaining, err := adapter.Snapshots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("remaining snapshots after deletion: %d", len(remaining))
+	}
+	if err := adapter.Check(context.Background(), nil); err != nil {
+		t.Fatalf("check repository after snapshot deletion: %v", err)
+	}
 }
 
 func TestUnlockRejectsWrongPassword(t *testing.T) {

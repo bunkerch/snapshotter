@@ -17,6 +17,7 @@ type Engine interface {
 	List(context.Context, string, string) ([]domain.Entry, error)
 	Dump(context.Context, string, string, io.Writer) error
 	Forget(context.Context, domain.RetentionPolicy) error
+	DeleteSnapshot(context.Context, string) error
 	Check(context.Context, ProgressSink) error
 	RepairIndex(context.Context, ProgressSink) error
 	Close() error

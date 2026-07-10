@@ -84,6 +84,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.listSnapshot(ctx, req.Payload)
 	case "snapshot.restore":
 		data, err = r.restoreSnapshot(ctx, req.Payload)
+	case "snapshot.delete":
+		data, err = r.deleteSnapshot(ctx, req.Payload)
 	default:
 		err = fmt.Errorf("unsupported request type %q", req.Type)
 	}
@@ -91,6 +93,27 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		return failed(err)
 	}
 	return response{OK: true, Data: data}
+}
+
+func (r *runtime) deleteSnapshot(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		SnapshotID string `json:"snapshotID"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode snapshot deletion: %w", err)
+	}
+	if strings.TrimSpace(input.SnapshotID) == "" {
+		return applicationState{}, errors.New("snapshot identifier is required")
+	}
+	operationContext, done, err := r.coordinator.Start(ctx)
+	if err != nil {
+		return applicationState{}, err
+	}
+	defer done()
+	if err := r.repository.DeleteSnapshot(operationContext, input.SnapshotID); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(ctx)
 }
 
 func (r *runtime) listSnapshot(ctx context.Context, payload json.RawMessage) ([]domain.Entry, error) {

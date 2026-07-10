@@ -562,6 +562,46 @@ small {
     font-size: 9px;
 }
 
+.snapshot-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 5px 4px;
+    border-top: 1px solid var(--separator);
+}
+
+.destructive-button,
+.delete-confirmation button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    color: light-dark(#d70015, #ff6961);
+    font-size: 9.5px;
+    font-weight: 550;
+}
+
+.destructive-button:hover {
+    background: light-dark(rgb(255 59 48 / 9%), rgb(255 69 58 / 14%));
+}
+
+.delete-confirmation {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 5px;
+}
+
+.delete-confirmation span {
+    flex: 1;
+    color: var(--secondary);
+    font-size: 9px;
+}
+
+.delete-confirmation button:not(.destructive-button) {
+    color: var(--secondary);
+}
+
 .settings-page h3 {
     padding: 0 5px;
     margin: 15px 0 3px;
