@@ -227,6 +227,55 @@ func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error
 	return nil
 }
 
+func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return errors.New("repository is not open")
+	}
+	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	if err != nil {
+		return fmt.Errorf("lock repository for retention: %w", err)
+	}
+	defer unlocker.Unlock()
+	ctx = lockContext
+
+	snapshots := make(data.Snapshots, 0)
+	if err := data.ForAllSnapshots(ctx, r.repo, r.repo, nil, func(_ restic.ID, snapshot *data.Snapshot, loadErr error) error {
+		if loadErr != nil {
+			return loadErr
+		}
+		snapshots = append(snapshots, snapshot)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("load snapshots for retention: %w", err)
+	}
+	groups, _, err := data.GroupSnapshots(snapshots, data.SnapshotGroupByOptions{Host: true, Path: true})
+	if err != nil {
+		return fmt.Errorf("group snapshots for retention: %w", err)
+	}
+	expires := data.ExpirePolicy{
+		Last:    1,
+		Hourly:  policy.Hourly,
+		Daily:   policy.Daily,
+		Weekly:  policy.Weekly,
+		Monthly: policy.Monthly,
+		Yearly:  policy.Yearly,
+	}
+	for _, group := range groups {
+		_, remove, _ := data.ApplyPolicy(group, expires)
+		for _, snapshot := range remove {
+			if snapshot.ID() == nil {
+				continue
+			}
+			if err := r.repo.RemoveUnpacked(ctx, restic.WriteableSnapshotFile, *snapshot.ID()); err != nil {
+				return fmt.Errorf("remove expired snapshot %s: %w", snapshot.ID().Str(), err)
+			}
+		}
+	}
+	return nil
+}
+
 func (r *Repository) List(ctx context.Context, snapshotID, directory string) ([]domain.Entry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

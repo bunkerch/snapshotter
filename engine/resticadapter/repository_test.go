@@ -122,6 +122,22 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if string(content) != "hello from restic app" {
 		t.Fatalf("unexpected restored content: %q", content)
 	}
+	if err := os.WriteFile(filepath.Join(sourcePath, "hello.txt"), []byte("updated content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.Forget(context.Background(), domain.RetentionPolicy{Daily: 1}); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := adapter.Snapshots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained) != 1 {
+		t.Fatalf("retained %d snapshots, want 1", len(retained))
+	}
 }
 
 func TestUnlockRejectsWrongPassword(t *testing.T) {

@@ -341,6 +341,9 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 	if _, err := r.repository.Backup(operationContext, preferences.Sources, nil); err != nil {
 		return applicationState{}, err
 	}
+	if err := r.repository.Forget(operationContext, preferences.Retention); err != nil {
+		return applicationState{}, fmt.Errorf("apply retention policy: %w", err)
+	}
 	return r.state(ctx)
 }
 

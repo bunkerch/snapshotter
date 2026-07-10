@@ -869,6 +869,10 @@ function Settings({
             </button>
             {retentionOpen && (
                 <div className="retention-editor">
+                    <p>
+                        Keep one snapshot for each period. Applied after every
+                        successful backup; the newest snapshot is always kept.
+                    </p>
                     {(["daily", "weekly", "monthly"] as const).map((period) => (
                         <label key={period}>
                             <span>
