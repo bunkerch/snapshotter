@@ -34,7 +34,8 @@ swift run --package-path macos
 
 A shield icon appears in the macOS menu bar. Click it to open the app. No Dock
 icon or regular window appears because Snapshotter runs as a menu-bar accessory.
-Stop the native process with **Control-C**, or click **Quit** in the popover.
+Stop the native process with **Control-C**. In a packaged build, right-click the
+menu-bar icon and choose **Quit Snapshotter**.
 
 Debug builds enable WKWebView inspection. Right-click inside the popover and
 choose **Inspect Element**, or attach through Safari's **Develop** menu.
@@ -66,6 +67,20 @@ Developer ID identity:
 
 ```sh
 CODESIGN_IDENTITY="Developer ID Application: Example (TEAMID)" make app
+```
+
+Create a compressed installer image at `build/Snapshotter.dmg`:
+
+```sh
+make dmg
+```
+
+For release distribution, configure an Apple notary profile and sign with your
+Developer ID. The disk image is submitted, stapled, and verified automatically:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
+NOTARY_PROFILE="snapshotter-notary" make dmg
 ```
 
 ## Architecture

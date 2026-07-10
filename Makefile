@@ -1,7 +1,10 @@
-.PHONY: app engine test
+.PHONY: app dmg engine test
 
 app:
 	sh scripts/package-macos.sh
+
+dmg:
+	sh scripts/package-release.sh
 
 engine:
 	cd engine && mkdir -p build && go build -buildmode=c-shared -o build/libsnapshotter.dylib ./bridge
