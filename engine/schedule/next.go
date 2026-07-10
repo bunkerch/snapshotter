@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/manaf/restic-app/engine/domain"
+	"github.com/restic/restic/app/domain"
 )
 
 func Next(after time.Time, configured domain.Schedule) (time.Time, error) {

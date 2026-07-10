@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/manaf/restic-app/engine/domain"
+	"github.com/restic/restic/app/domain"
 )
 
 // Engine is the application-facing contract implemented by the embedded restic adapter.

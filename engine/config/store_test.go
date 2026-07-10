@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/manaf/restic-app/engine/domain"
+	"github.com/restic/restic/app/domain"
 )
 
 func TestStoreReturnsDefaultsWhenMissing(t *testing.T) {
