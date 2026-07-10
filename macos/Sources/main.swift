@@ -112,17 +112,36 @@ private struct BridgeRequest: Decodable, Sendable {
 private final class Backend: @unchecked Sendable {
     static let shared = Backend()
     private let queue = DispatchQueue(label: "app.restic.engine", qos: .utility)
+    private let keychain = KeychainStore()
 
     func handle(_ request: BridgeRequest) {
         queue.async {
-            // The linked Go engine receives requests here. Keeping this boundary
-            // serial prevents overlapping maintenance and backup repository locks.
-            NSLog("Engine request: \(request.type)")
+            do {
+                switch request.type {
+                case "repository.password.set":
+                    guard let repositoryID = request.payload?["repositoryID"],
+                          let password = request.payload?["password"],
+                          !repositoryID.isEmpty, !password.isEmpty else { return }
+                    try self.keychain.savePassword(password, repositoryID: repositoryID)
+                case "repository.password.remove":
+                    guard let repositoryID = request.payload?["repositoryID"], !repositoryID.isEmpty else { return }
+                    try self.keychain.removePassword(repositoryID: repositoryID)
+                default:
+                    self.dispatchToEngine(request)
+                }
+            } catch {
+                NSLog("Native request failed: \(request.type), \(error.localizedDescription)")
+            }
         }
     }
 
     func addSources(_ urls: [URL]) {
         queue.async { NSLog("Adding \(urls.count) backup source(s)") }
     }
-}
 
+    private func dispatchToEngine(_ request: BridgeRequest) {
+        // The linked Go engine receives requests here. This serial boundary prevents
+        // overlapping backup and maintenance locks for the same repository.
+        NSLog("Engine request: \(request.type)")
+    }
+}
