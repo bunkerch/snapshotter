@@ -52,6 +52,22 @@ cd engine && go test -race ./...
 The host loads the Vite server in debug builds. Release packaging will bundle the
 generated web assets into the application.
 
+## Packaging
+
+Create a signed application bundle at `build/Snapshotter.app`:
+
+```sh
+make app
+open build/Snapshotter.app
+```
+
+Packaging uses ad-hoc signing by default. For a distributable build, provide a
+Developer ID identity:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Example (TEAMID)" make app
+```
+
 ## Architecture
 
 The app never shells out to the restic executable. The Go engine is linked into the

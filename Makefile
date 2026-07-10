@@ -1,4 +1,7 @@
-.PHONY: engine test
+.PHONY: app engine test
+
+app:
+	sh scripts/package-macos.sh
 
 engine:
 	cd engine && mkdir -p build && go build -buildmode=c-shared -o build/libsnapshotter.dylib ./bridge
