@@ -50,20 +50,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         switch request.type {
         case "app.quit": NSApp.terminate(nil)
-        case "source.choose": chooseSourceFolder()
-        case "launchAtLogin.set": setLaunchAtLogin(enabled: request.payload?["enabled"] == "true")
-        default: Backend.shared.handle(request)
+        case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
+        case "launchAtLogin.set": setLaunchAtLogin(enabled: request.payload?.enabled == true)
+        default: Backend.shared.handle(raw, requestID: request.id, webView: message.webView)
         }
     }
 
-    private func chooseSourceFolder() {
+    private func chooseSourceFolder(request: BridgeRequest, webView: WKWebView?) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.begin { response in
             guard response == .OK else { return }
-            Backend.shared.addSources(panel.urls)
+            Backend.shared.addSources(panel.urls, requestID: request.id, webView: webView)
         }
     }
 
@@ -117,43 +117,66 @@ private final class WebViewController: NSViewController {
 }
 
 private struct BridgeRequest: Decodable, Sendable {
+    let id: String?
     let type: String
-    let payload: [String: String]?
+    let payload: BridgePayload?
+}
+
+private struct BridgePayload: Decodable, Sendable {
+    let enabled: Bool?
 }
 
 private final class Backend: @unchecked Sendable {
     static let shared = Backend()
     private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
     private let keychain = KeychainStore()
+    private let engine: Result<EngineBridge, Error>
 
-    func handle(_ request: BridgeRequest) {
+    private init() {
+        engine = Result { try EngineBridge() }
+    }
+
+    func handle(_ rawRequest: String, requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
         queue.async {
             do {
-                switch request.type {
-                case "repository.password.set":
-                    guard let repositoryID = request.payload?["repositoryID"],
-                          let password = request.payload?["password"],
-                          !repositoryID.isEmpty, !password.isEmpty else { return }
-                    try self.keychain.savePassword(password, repositoryID: repositoryID)
-                case "repository.password.remove":
-                    guard let repositoryID = request.payload?["repositoryID"], !repositoryID.isEmpty else { return }
-                    try self.keychain.removePassword(repositoryID: repositoryID)
-                default:
-                    self.dispatchToEngine(request)
-                }
+                let response = try self.engine.get().handle(rawRequest)
+                Self.respond(response, requestID: requestID, reference: reference)
             } catch {
-                NSLog("Native request failed: \(request.type), \(error.localizedDescription)")
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
             }
         }
     }
 
-    func addSources(_ urls: [URL]) {
-        queue.async { NSLog("Adding \(urls.count) backup source(s)") }
+    func addSources(_ urls: [URL], requestID: String?, webView: WKWebView?) {
+        let paths = urls.map(\.path)
+        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "source.add", "payload": ["paths": paths]]),
+              let request = String(data: data, encoding: .utf8) else { return }
+        handle(request, requestID: requestID, webView: webView)
     }
 
-    private func dispatchToEngine(_ request: BridgeRequest) {
-        // The linked Go engine receives requests here. This serial boundary prevents
-        // overlapping backup and maintenance locks for the same repository.
-        NSLog("Engine request: \(request.type)")
+    private static func respond(_ response: String, requestID: String?, reference: WebViewReference) {
+        guard let requestID,
+              let idData = try? JSONEncoder().encode(requestID),
+              let encodedID = String(data: idData, encoding: .utf8) else { return }
+        DispatchQueue.main.async {
+            reference.webView?.evaluateJavaScript("window.__snapshotterResolve?.(\(encodedID), \(response))")
+        }
+    }
+
+    private static func errorResponse(_ error: Error) -> String {
+        let payload = ["ok": false, "error": error.localizedDescription] as [String: Any]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
+            return #"{"ok":false,"error":"Native engine error"}"#
+        }
+        return String(data: data, encoding: .utf8) ?? #"{"ok":false,"error":"Native engine error"}"#
+    }
+}
+
+private final class WebViewReference: @unchecked Sendable {
+    weak var webView: WKWebView?
+
+    init(_ webView: WKWebView?) {
+        self.webView = webView
     }
 }
