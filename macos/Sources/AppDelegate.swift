@@ -39,7 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            if let window = popover.contentViewController?.view.window {
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                window.makeKey()
+            }
         }
     }
 
@@ -51,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         switch request.type {
         case "app.quit": NSApp.terminate(nil)
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
+        case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
+        case "repository.unlock": unlockRepository(request: request, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(enabled: request.payload?.enabled == true)
         default: Backend.shared.handle(raw, requestID: request.id, webView: message.webView)
         }
@@ -62,9 +68,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.begin { response in
-            guard response == .OK else { return }
+            guard response == .OK else {
+                Backend.shared.refresh(requestID: request.id, webView: webView)
+                return
+            }
             Backend.shared.addSources(panel.urls, requestID: request.id, webView: webView)
         }
+    }
+
+    private func chooseRepository(request: BridgeRequest, webView: WKWebView?) {
+        guard let name = request.payload?.name, !name.isEmpty,
+              let password = request.payload?.password, !password.isEmpty else {
+            Backend.shared.fail("A name and password are required", requestID: request.id, webView: webView)
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Backup Destination"
+        panel.prompt = "Choose"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let destination = panel.url else {
+                Backend.shared.refresh(requestID: request.id, webView: webView)
+                return
+            }
+            Backend.shared.createRepository(
+                name: name,
+                location: destination.path,
+                password: password,
+                requestID: request.id,
+                webView: webView
+            )
+        }
+    }
+
+    private func unlockRepository(request: BridgeRequest, webView: WKWebView?) {
+        guard let repositoryID = request.payload?.repositoryID else {
+            Backend.shared.fail("Repository identifier is missing", requestID: request.id, webView: webView)
+            return
+        }
+        Backend.shared.unlockRepository(repositoryID: repositoryID, requestID: request.id, webView: webView)
     }
 
     private func setLaunchAtLogin(enabled: Bool) {
@@ -95,6 +139,7 @@ private final class WebViewController: NSViewController {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .clear
         webView.translatesAutoresizingMaskIntoConstraints = false
         materialView.addSubview(webView)
         NSLayoutConstraint.activate([
@@ -124,6 +169,9 @@ private struct BridgeRequest: Decodable, Sendable {
 
 private struct BridgePayload: Decodable, Sendable {
     let enabled: Bool?
+    let name: String?
+    let password: String?
+    let repositoryID: String?
 }
 
 private final class Backend: @unchecked Sendable {
@@ -148,11 +196,63 @@ private final class Backend: @unchecked Sendable {
         }
     }
 
+    func refresh(requestID: String?, webView: WKWebView?) {
+        handle(#"{"type":"state.get"}"#, requestID: requestID, webView: webView)
+    }
+
     func addSources(_ urls: [URL], requestID: String?, webView: WKWebView?) {
         let paths = urls.map(\.path)
         guard let data = try? JSONSerialization.data(withJSONObject: ["type": "source.add", "payload": ["paths": paths]]),
               let request = String(data: data, encoding: .utf8) else { return }
         handle(request, requestID: requestID, webView: webView)
+    }
+
+    func createRepository(name: String, location: String, password: String, requestID: String?, webView: WKWebView?) {
+        let repositoryID = UUID().uuidString.lowercased()
+        let payload: [String: Any] = [
+            "type": "repository.create",
+            "payload": [
+                "repository": ["id": repositoryID, "name": name, "kind": "local", "location": location],
+                "password": password,
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let request = String(data: data, encoding: .utf8) else { return }
+        let reference = WebViewReference(webView)
+        queue.async {
+            do {
+                let response = try self.engine.get().handle(request)
+                if Self.isSuccessful(response) {
+                    try self.keychain.savePassword(password, repositoryID: repositoryID)
+                }
+                Self.respond(response, requestID: requestID, reference: reference)
+            } catch {
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
+        }
+    }
+
+    func unlockRepository(repositoryID: String, requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        queue.async {
+            do {
+                guard let password = try self.keychain.password(repositoryID: repositoryID) else {
+                    throw NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Repository password was not found in Keychain"])
+                }
+                let payload = ["type": "repository.unlock", "payload": ["password": password]] as [String: Any]
+                let data = try JSONSerialization.data(withJSONObject: payload)
+                guard let request = String(data: data, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
+                let response = try self.engine.get().handle(request)
+                Self.respond(response, requestID: requestID, reference: reference)
+            } catch {
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
+        }
+    }
+
+    func fail(_ message: String, requestID: String?, webView: WKWebView?) {
+        let error = NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        Self.respond(Self.errorResponse(error), requestID: requestID, reference: WebViewReference(webView))
     }
 
     private static func respond(_ response: String, requestID: String?, reference: WebViewReference) {
@@ -170,6 +270,12 @@ private final class Backend: @unchecked Sendable {
             return #"{"ok":false,"error":"Native engine error"}"#
         }
         return String(data: data, encoding: .utf8) ?? #"{"ok":false,"error":"Native engine error"}"#
+    }
+
+    private static func isSuccessful(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["ok"] as? Bool == true
     }
 }
 

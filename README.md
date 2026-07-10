@@ -28,6 +28,7 @@ Wait until Vite prints `http://localhost:4173/`. Terminal 2 starts the native
 menu-bar host:
 
 ```sh
+make engine
 swift run --package-path macos
 ```
 
@@ -40,6 +41,7 @@ Vite terminal is still running. Build each layer independently with:
 
 ```sh
 zsh -ic 'pnpm build'
+make engine
 swift build --package-path macos
 cd engine && go test -race ./...
 ```

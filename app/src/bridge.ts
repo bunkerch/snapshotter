@@ -1,4 +1,15 @@
-import type { Dashboard } from "./model"
+interface NativeResponse<T> {
+    ok: boolean
+    data?: T
+    error?: string
+}
+
+type PendingRequest = {
+    resolve: (value: unknown) => void
+    reject: (error: Error) => void
+}
+
+const pending = new Map<string, PendingRequest>()
 
 declare global {
     interface Window {
@@ -7,68 +18,39 @@ declare global {
                 resticNative?: { postMessage(message: string): void }
             }
         }
+        __snapshotterResolve?: (
+            id: string,
+            response: NativeResponse<unknown>,
+        ) => void
     }
 }
 
-export const initialDashboard: Dashboard = {
-    state: "idle",
-    lastBackup: "Today, 10:42",
-    nextBackup: "in 43 minutes",
-    repository: "Home Archive",
-    repositoryDetail: "Local disk · /Volumes/Archive",
-    sources: [
-        {
-            id: "desktop",
-            name: "Desktop",
-            path: "~/Desktop",
-            size: "2.4 GB",
-            enabled: true,
-        },
-        {
-            id: "documents",
-            name: "Documents",
-            path: "~/Documents",
-            size: "18.7 GB",
-            enabled: true,
-        },
-        {
-            id: "developer",
-            name: "Developer",
-            path: "~/Developer",
-            size: "31.2 GB",
-            enabled: true,
-        },
-        {
-            id: "config",
-            name: "Config files",
-            path: "~/.config",
-            size: "684 MB",
-            enabled: false,
-        },
-    ],
-    snapshots: [
-        {
-            id: "a39d71",
-            label: "Today, 10:42",
-            relativeTime: "2 hours ago",
-            size: "284 MB",
-            files: "128,403 files",
-        },
-        {
-            id: "9d02bc",
-            label: "Yesterday, 18:04",
-            relativeTime: "Yesterday",
-            size: "91 MB",
-            files: "128,171 files",
-        },
-        {
-            id: "70e0ff",
-            label: "Jul 8, 09:15",
-            relativeTime: "2 days ago",
-            size: "1.2 GB",
-            files: "127,950 files",
-        },
-    ],
+window.__snapshotterResolve = (id, response) => {
+    const request = pending.get(id)
+    if (!request) return
+    pending.delete(id)
+    if (response.ok) request.resolve(response.data)
+    else
+        request.reject(
+            new Error(response.error ?? "Snapshotter request failed"),
+        )
+}
+
+export function requestNative<T>(type: string, payload: unknown = {}) {
+    const handler = window.webkit?.messageHandlers?.resticNative
+    if (!handler) {
+        return Promise.reject(
+            new Error("Open Snapshotter through the macOS menu bar"),
+        )
+    }
+    const id = crypto.randomUUID()
+    return new Promise<T>((resolve, reject) => {
+        pending.set(id, {
+            resolve: resolve as (value: unknown) => void,
+            reject,
+        })
+        handler.postMessage(JSON.stringify({ id, type, payload }))
+    })
 }
 
 export function sendNative(type: string, payload: unknown = {}) {

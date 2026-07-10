@@ -37,6 +37,10 @@ body {
     user-select: none;
 }
 
+input {
+    user-select: text;
+}
+
 button,
 input {
     font: inherit;
@@ -53,8 +57,7 @@ button {
     width: 100%;
     min-height: 540px;
     padding: 13px 14px 10px;
-    background: var(--material);
-    backdrop-filter: blur(32px) saturate(180%);
+    background: transparent;
 }
 
 .titlebar,
@@ -458,7 +461,7 @@ small {
     margin-top: 3px;
     border: 2px solid var(--accent);
     border-radius: 50%;
-    background: var(--material);
+    background: var(--material-strong);
 }
 
 .timeline-rail i {
@@ -513,6 +516,121 @@ footer button {
     width: 6px;
     height: 6px;
     border-radius: 50%;
+    background: var(--green);
+}
+
+.center-state,
+.setup-state {
+    display: flex;
+    min-height: 390px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--secondary);
+    text-align: center;
+}
+
+.center-state strong {
+    color: var(--label);
+}
+
+.spinner {
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.setup-state {
+    width: 270px;
+    margin: 0 auto;
+    color: var(--label);
+}
+
+.setup-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: 11px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.setup-state h1 {
+    margin: 5px 0 0;
+    font-size: 16px;
+}
+
+.setup-state p {
+    margin: 0 0 8px;
+    color: var(--secondary);
+    font-size: 10px;
+}
+
+.setup-state label {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--secondary);
+    font-size: 9px;
+    text-align: left;
+}
+
+.setup-state input {
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--separator);
+    border-radius: 6px;
+    outline: none;
+    color: var(--label);
+    background: var(--material-strong);
+    font-size: 11px;
+}
+
+.setup-state input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.setup-button {
+    margin-top: 6px;
+}
+
+.error-banner,
+.form-error {
+    color: light-dark(#c9342f, #ff6961);
+    font-size: 9px;
+}
+
+.error-banner {
+    padding: 6px 8px;
+    margin: 5px 0;
+    border-radius: 6px;
+    background: light-dark(rgb(255 59 48 / 10%), rgb(255 69 58 / 16%));
+}
+
+.empty-row {
+    padding: 14px 5px;
+    color: var(--secondary);
+    font-size: 10px;
+    text-align: center;
+}
+
+.source-status {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tertiary);
+}
+
+.source-status.enabled {
     background: var(--green);
 }
 

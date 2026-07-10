@@ -18,6 +18,7 @@ zsh -ic 'pnpm dev'           # run Vite on localhost:4173
 zsh -ic 'pnpm build'         # type-check and build production assets
 zsh -ic 'pnpm test'          # run Vitest with jsdom
 zsh -ic 'pnpm lint'          # run Biome checks
+make engine                  # build the embedded Go dynamic library
 swift run --package-path macos
 cd engine && go test -race ./...
 ```

@@ -1,27 +1,52 @@
-export type BackupState = "idle" | "running" | "attention"
+export interface Repository {
+    id: string
+    name: string
+    kind: "local" | "sftp" | "s3" | "rest"
+    location: string
+}
 
 export interface Source {
     id: string
-    name: string
     path: string
-    size: string
     enabled: boolean
+    excluded: boolean
+}
+
+export interface Schedule {
+    enabled: boolean
+    kind: "hourly" | "daily"
+    interval: number
+    hour: number
+    minute: number
+}
+
+export interface RetentionPolicy {
+    hourly: number
+    daily: number
+    weekly: number
+    monthly: number
+    yearly: number
+}
+
+export interface Preferences {
+    version: number
+    repository?: Repository
+    sources: Source[]
+    schedule: Schedule
+    retention: RetentionPolicy
+    launchAtLogin: boolean
 }
 
 export interface Snapshot {
     id: string
-    label: string
-    relativeTime: string
-    size: string
-    files: string
+    time: string
+    hostname: string
+    paths: string[]
+    tags: string[]
 }
 
-export interface Dashboard {
-    state: BackupState
-    lastBackup: string
-    nextBackup: string
-    repository: string
-    repositoryDetail: string
-    sources: Source[]
+export interface ApplicationState {
+    preferences: Preferences
     snapshots: Snapshot[]
+    status: "unconfigured" | "locked" | "ready"
 }
