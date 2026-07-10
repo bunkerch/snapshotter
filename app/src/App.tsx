@@ -27,7 +27,11 @@ export function App() {
 
     const refresh = useCallback(async () => {
         try {
-            setState(await requestNative<ApplicationState>("state.get"))
+            setState(
+                normalizeState(
+                    await requestNative<ApplicationState>("state.get"),
+                ),
+            )
             setError(undefined)
         } catch (requestError) {
             setError(message(requestError))
@@ -41,7 +45,11 @@ export function App() {
     const backupNow = async () => {
         setRunning(true)
         try {
-            setState(await requestNative<ApplicationState>("backup.start"))
+            setState(
+                normalizeState(
+                    await requestNative<ApplicationState>("backup.start"),
+                ),
+            )
             setError(undefined)
         } catch (requestError) {
             setError(message(requestError))
@@ -52,7 +60,11 @@ export function App() {
 
     const addSources = async () => {
         try {
-            setState(await requestNative<ApplicationState>("source.choose"))
+            setState(
+                normalizeState(
+                    await requestNative<ApplicationState>("source.choose"),
+                ),
+            )
         } catch (requestError) {
             setError(message(requestError))
         }
@@ -68,10 +80,13 @@ export function App() {
             {error && <div className="error-banner">{error}</div>}
             {!state && <Loading />}
             {state?.status === "unconfigured" && (
-                <Setup onComplete={setState} />
+                <Setup onComplete={(next) => setState(normalizeState(next))} />
             )}
             {state?.status === "locked" && (
-                <Locked state={state} onComplete={setState} />
+                <Locked
+                    state={state}
+                    onComplete={(next) => setState(normalizeState(next))}
+                />
             )}
             {state?.status === "ready" && view === "overview" && (
                 <Overview
@@ -527,4 +542,15 @@ function scheduleLabel(state: ApplicationState) {
     return schedule.kind === "hourly"
         ? `Every ${schedule.interval === 1 ? "hour" : `${schedule.interval} hours`}`
         : `Daily at ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
+}
+
+function normalizeState(state: ApplicationState): ApplicationState {
+    return {
+        ...state,
+        snapshots: state.snapshots ?? [],
+        preferences: {
+            ...state.preferences,
+            sources: state.preferences.sources ?? [],
+        },
+    }
 }

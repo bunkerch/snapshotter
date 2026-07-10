@@ -1,11 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
 )
+
+func TestStateCollectionsEncodeAsArrays(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	result := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"sources":null`)) || bytes.Contains(encoded, []byte(`"snapshots":null`)) {
+		t.Fatalf("state contains null collection: %s", encoded)
+	}
+}
 
 func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))

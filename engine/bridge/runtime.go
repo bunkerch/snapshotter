@@ -78,6 +78,9 @@ func (r *runtime) state(ctx context.Context) (applicationState, error) {
 	if err != nil {
 		return applicationState{}, err
 	}
+	if preferences.Sources == nil {
+		preferences.Sources = []domain.Source{}
+	}
 	state := applicationState{Preferences: preferences, Snapshots: []domain.Snapshot{}, Status: "unconfigured"}
 	if preferences.Repository == nil {
 		return state, nil

@@ -60,6 +60,7 @@ type Preferences struct {
 func DefaultPreferences() Preferences {
 	return Preferences{
 		Version: 1,
+		Sources: []Source{},
 		Schedule: Schedule{
 			Enabled:  true,
 			Kind:     ScheduleHourly,
