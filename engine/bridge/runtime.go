@@ -62,6 +62,10 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.state(ctx)
 	case "source.add":
 		data, err = r.addSources(req.Payload)
+	case "source.setEnabled":
+		data, err = r.setSourceEnabled(req.Payload)
+	case "source.remove":
+		data, err = r.removeSource(req.Payload)
 	case "repository.create":
 		data, err = r.createRepository(ctx, req.Payload)
 	case "repository.connect":
@@ -294,6 +298,62 @@ func (r *runtime) addSources(payload json.RawMessage) (applicationState, error) 
 		preferences.Sources = append(preferences.Sources, domain.Source{ID: sourceID(cleaned), Path: cleaned, Enabled: true})
 		existing[cleaned] = true
 	}
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) setSourceEnabled(payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode source update: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	found := false
+	for index := range preferences.Sources {
+		if preferences.Sources[index].ID == input.ID {
+			preferences.Sources[index].Enabled = input.Enabled
+			found = true
+			break
+		}
+	}
+	if !found {
+		return applicationState{}, fmt.Errorf("backup source %q was not found", input.ID)
+	}
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) removeSource(payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode source removal: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	filtered := preferences.Sources[:0]
+	for _, source := range preferences.Sources {
+		if source.ID != input.ID {
+			filtered = append(filtered, source)
+		}
+	}
+	if len(filtered) == len(preferences.Sources) {
+		return applicationState{}, fmt.Errorf("backup source %q was not found", input.ID)
+	}
+	preferences.Sources = filtered
 	if err := r.store.Save(preferences); err != nil {
 		return applicationState{}, err
 	}

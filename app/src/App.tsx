@@ -114,6 +114,7 @@ export function App() {
                         onAddSources={addSources}
                         onAddSourcePath={addSourcePath}
                         onSnapshots={() => setView("snapshots")}
+                        onState={(next) => setState(normalizeState(next))}
                     />
                 )}
                 {state?.status === "ready" && view === "snapshots" && (
@@ -457,6 +458,7 @@ function Overview({
     onAddSources,
     onAddSourcePath,
     onSnapshots,
+    onState,
 }: {
     state: ApplicationState
     running: boolean
@@ -464,6 +466,7 @@ function Overview({
     onAddSources: () => Promise<void>
     onAddSourcePath: (path: string) => Promise<void>
     onSnapshots: () => void
+    onState: (state: ApplicationState) => void
 }) {
     const latest = state.snapshots[0]
     const [sourceEditorOpen, setSourceEditorOpen] = useState(false)
@@ -482,6 +485,29 @@ function Overview({
             setSourceError(message(error))
         } finally {
             setAddingSource(false)
+        }
+    }
+    const setSourceEnabled = async (id: string, enabled: boolean) => {
+        try {
+            onState(
+                await requestNative<ApplicationState>("source.setEnabled", {
+                    id,
+                    enabled,
+                }),
+            )
+            setSourceError(undefined)
+        } catch (error) {
+            setSourceError(message(error))
+        }
+    }
+    const removeSource = async (id: string) => {
+        try {
+            onState(
+                await requestNative<ApplicationState>("source.remove", { id }),
+            )
+            setSourceError(undefined)
+        } catch (error) {
+            setSourceError(message(error))
         }
     }
     return (
@@ -580,9 +606,27 @@ function Overview({
                             <strong>{basename(source.path)}</strong>
                             <small>{source.path}</small>
                         </div>
-                        <span
-                            className={`source-status ${source.enabled ? "enabled" : ""}`}
-                        />
+                        <button
+                            type="button"
+                            className={`switch source-switch ${source.enabled ? "on" : ""}`}
+                            aria-label={`${source.enabled ? "Disable" : "Enable"} ${basename(source.path)}`}
+                            onClick={() =>
+                                void setSourceEnabled(
+                                    source.id,
+                                    !source.enabled,
+                                )
+                            }
+                        >
+                            <span />
+                        </button>
+                        <button
+                            type="button"
+                            className="icon-button source-remove"
+                            aria-label={`Remove ${basename(source.path)}`}
+                            onClick={() => void removeSource(source.id)}
+                        >
+                            <Trash2 size={13} />
+                        </button>
                     </div>
                 ))}
             </section>

@@ -770,15 +770,14 @@ small {
     text-align: center;
 }
 
-.source-status {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--tertiary);
+.source-remove {
+    width: 23px;
+    height: 23px;
+    color: var(--tertiary);
 }
 
-.source-status.enabled {
-    background: var(--green);
+.source-remove:hover {
+    color: light-dark(#d70015, #ff6961);
 }
 
 .source-editor {

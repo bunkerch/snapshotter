@@ -190,6 +190,23 @@ describe("Snapshotter app", () => {
         render(<App />)
 
         expect(await screen.findByText("Documents")).toBeTruthy()
+        fireEvent.click(
+            screen.getByRole("button", { name: "Disable Documents" }),
+        )
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("source.setEnabled", {
+                id: "documents",
+                enabled: false,
+            })
+        })
+        fireEvent.click(
+            screen.getByRole("button", { name: "Remove Documents" }),
+        )
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("source.remove", {
+                id: "documents",
+            })
+        })
         fireEvent.click(screen.getByRole("button", { name: "Snapshots" }))
         fireEvent.click(await screen.findByText("42 files"))
 

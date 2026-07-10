@@ -48,6 +48,14 @@ func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 	if len(state.Preferences.Sources) != 1 || state.Preferences.Sources[0].Path != sourcePath {
 		t.Fatalf("unexpected sources: %#v", state.Preferences.Sources)
 	}
+	updated = runtime.handle(context.Background(), []byte(fmt.Sprintf(`{"type":"source.setEnabled","payload":{"id":%q,"enabled":false}}`, state.Preferences.Sources[0].ID)))
+	if !updated.OK || updated.Data.(applicationState).Preferences.Sources[0].Enabled {
+		t.Fatalf("source was not disabled: %#v", updated)
+	}
+	updated = runtime.handle(context.Background(), []byte(fmt.Sprintf(`{"type":"source.remove","payload":{"id":%q}}`, state.Preferences.Sources[0].ID)))
+	if !updated.OK || len(updated.Data.(applicationState).Preferences.Sources) != 0 {
+		t.Fatalf("source was not removed: %#v", updated)
+	}
 }
 
 func TestAddSourcesRejectsFiles(t *testing.T) {
