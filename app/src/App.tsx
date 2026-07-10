@@ -46,7 +46,7 @@ export function App() {
                     <div className="brand-mark">
                         <ShieldCheck size={17} strokeWidth={2.4} />
                     </div>
-                    <span>Restic</span>
+                    <span>Snapshotter</span>
                 </div>
                 <button
                     type="button"
@@ -116,21 +116,10 @@ export function App() {
                         )}
                     </section>
 
-                    <div className="stats-row">
-                        <div>
-                            <Clock3 size={16} />
-                            <span>
-                                <small>Next backup</small>
-                                {dashboard.nextBackup}
-                            </span>
-                        </div>
-                        <div>
-                            <HardDrive size={16} />
-                            <span>
-                                <small>Repository</small>
-                                {dashboard.repository}
-                            </span>
-                        </div>
+                    <div className="summary-strip">
+                        <span>{dashboard.repository}</span>
+                        <i />
+                        <span>Next backup {dashboard.nextBackup}</span>
                     </div>
 
                     <SectionTitle
@@ -147,9 +136,7 @@ export function App() {
                                 </div>
                                 <div className="row-copy">
                                     <strong>{source.name}</strong>
-                                    <small>
-                                        {source.path} · {source.size}
-                                    </small>
+                                    <small>{source.path}</small>
                                 </div>
                                 <button
                                     type="button"
@@ -164,8 +151,8 @@ export function App() {
                     </section>
 
                     <SectionTitle
-                        title="Latest snapshots"
-                        action="See all"
+                        title="Recent"
+                        action="All snapshots"
                         onAction={() => setView("snapshots")}
                     />
                     <section className="list-card snapshot-list">
@@ -179,9 +166,7 @@ export function App() {
                                 <div className="snapshot-dot" />
                                 <div className="row-copy">
                                     <strong>{snapshot.label}</strong>
-                                    <small>
-                                        {snapshot.files} · {snapshot.size} added
-                                    </small>
+                                    <small>{snapshot.relativeTime}</small>
                                 </div>
                                 <ChevronRight size={15} />
                             </button>
@@ -193,12 +178,9 @@ export function App() {
             {view === "snapshots" && <Snapshots />}
             {view === "settings" && <Settings />}
 
-            <footer>
-                <span className="footer-status">
-                    <i className="online-dot" /> Ready
-                </span>
+            <footer className="footer-actions">
                 <button type="button" onClick={() => sendNative("app.quit")}>
-                    Quit Restic
+                    Quit
                 </button>
             </footer>
         </main>
@@ -238,10 +220,7 @@ function Snapshots() {
                 />
             </div>
             <div className="page-heading">
-                <div>
-                    <h1>Snapshots</h1>
-                    <p>Browse or recover a previous version.</p>
-                </div>
+                <h1>Snapshots</h1>
                 <button type="button" className="secondary-button">
                     <ArchiveRestore size={14} /> Recover file
                 </button>
@@ -261,10 +240,7 @@ function Snapshots() {
                         </div>
                         <div className="row-copy">
                             <strong>{snapshot.label}</strong>
-                            <small>
-                                {snapshot.files} · {snapshot.size} added
-                            </small>
-                            <code>{snapshot.id}</code>
+                            <small>{snapshot.relativeTime}</small>
                         </div>
                         <MoreHorizontal size={17} />
                     </button>
@@ -278,17 +254,14 @@ function Settings() {
     return (
         <section className="page settings-page">
             <div className="page-heading">
-                <div>
-                    <h1>Settings</h1>
-                    <p>Backup schedule and repository health.</p>
-                </div>
+                <h1>Settings</h1>
             </div>
             <h3>Repository</h3>
             <button type="button" className="setting-row">
                 <HardDrive size={17} />
                 <span>
                     <strong>Home Archive</strong>
-                    <small>Local disk · Connected</small>
+                    <small>Local disk</small>
                 </span>
                 <ChevronRight size={15} />
             </button>
@@ -297,7 +270,7 @@ function Settings() {
                 <label>
                     <span>
                         <strong>Automatic backups</strong>
-                        <small>Run every hour when your Mac is awake</small>
+                        <small>Every hour</small>
                     </span>
                     <button type="button" className="switch on">
                         <span />
@@ -306,7 +279,6 @@ function Settings() {
                 <label>
                     <span>
                         <strong>Start at login</strong>
-                        <small>Keep protection running in the background</small>
                     </span>
                     <button type="button" className="switch on">
                         <span />
@@ -318,7 +290,7 @@ function Settings() {
                 <Clock3 size={17} />
                 <span>
                     <strong>Smart retention</strong>
-                    <small>24 hourly · 7 daily · 4 weekly · 12 monthly</small>
+                    <small>24 hourly · 7 daily · 4 weekly</small>
                 </span>
                 <ChevronRight size={15} />
             </button>

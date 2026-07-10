@@ -16,7 +16,7 @@ enum KeychainError: LocalizedError {
 }
 
 struct KeychainStore: Sendable {
-    private let service = "app.restic.repository"
+    private let service = "app.snapshotter.repository"
 
     func savePassword(_ password: String, repositoryID: String) throws {
         guard let data = password.data(using: .utf8) else {

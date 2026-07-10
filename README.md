@@ -1,4 +1,4 @@
-# Restic App
+# Snapshotter
 
 A native macOS menu bar backup manager powered by restic.
 
@@ -32,8 +32,8 @@ swift run --package-path macos
 ```
 
 A shield icon appears in the macOS menu bar. Click it to open the app. No Dock
-icon or regular window appears because Restic App runs as a menu-bar accessory.
-Stop the native process with **Control-C**, or click **Quit Restic** in the popover.
+icon or regular window appears because Snapshotter runs as a menu-bar accessory.
+Stop the native process with **Control-C**, or click **Quit** in the popover.
 
 If the shield is not visible, check the menu-bar overflow area and confirm the
 Vite terminal is still running. Build each layer independently with:

@@ -138,7 +138,7 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink s
 		BackupStart:    started,
 		Time:           started,
 		Hostname:       hostname,
-		ProgramVersion: "Restic App",
+		ProgramVersion: "Snapshotter",
 	})
 	if err != nil {
 		return domain.Snapshot{}, fmt.Errorf("save snapshot: %w", err)

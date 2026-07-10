@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "ResticApp",
+    name: "Snapshotter",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "ResticApp", targets: ["ResticApp"])],
+    products: [.executable(name: "Snapshotter", targets: ["Snapshotter"])],
     targets: [
         .executableTarget(
-            name: "ResticApp",
+            name: "Snapshotter",
             path: "Sources",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -18,4 +18,3 @@ let package = Package(
         )
     ]
 )
-

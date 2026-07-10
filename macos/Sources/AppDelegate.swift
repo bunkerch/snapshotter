@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         let controller = WebViewController(configuration: configuration)
         popover.contentViewController = controller
-        popover.contentSize = NSSize(width: 420, height: 620)
+        popover.contentSize = NSSize(width: 390, height: 540)
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private func configureStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "shield.checkered", accessibilityDescription: "Restic")
+        button.image = NSImage(systemSymbolName: "shield.checkered", accessibilityDescription: "Snapshotter")
         button.image?.isTemplate = true
         button.target = self
         button.action = #selector(togglePopover)
@@ -88,9 +88,22 @@ private final class WebViewController: NSViewController {
     required init?(coder: NSCoder) { nil }
 
     override func loadView() {
+        let materialView = NSVisualEffectView()
+        materialView.material = .popover
+        materialView.blendingMode = .behindWindow
+        materialView.state = .active
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
-        view = webView
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        materialView.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: materialView.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: materialView.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: materialView.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: materialView.bottomAnchor),
+        ])
+        view = materialView
 
         #if DEBUG
         webView.load(URLRequest(url: URL(string: "http://localhost:4173")!))
@@ -110,7 +123,7 @@ private struct BridgeRequest: Decodable, Sendable {
 
 private final class Backend: @unchecked Sendable {
     static let shared = Backend()
-    private let queue = DispatchQueue(label: "app.restic.engine", qos: .utility)
+    private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
     private let keychain = KeychainStore()
 
     func handle(_ request: BridgeRequest) {
