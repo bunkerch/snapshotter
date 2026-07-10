@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -30,7 +32,8 @@ func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 	if state.Status != "unconfigured" || len(state.Preferences.Sources) != 0 {
 		t.Fatalf("unexpected initial state: %#v", state)
 	}
-	payload, err := json.Marshal(request{Type: "source.add", Payload: json.RawMessage(`{"paths":["/Users/example/Documents"]}`)})
+	sourcePath := t.TempDir()
+	payload, err := json.Marshal(request{Type: "source.add", Payload: json.RawMessage(fmt.Sprintf(`{"paths":[%q]}`, sourcePath))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +42,23 @@ func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 		t.Fatal(updated.Error)
 	}
 	state = updated.Data.(applicationState)
-	if len(state.Preferences.Sources) != 1 || state.Preferences.Sources[0].Path != "/Users/example/Documents" {
+	if len(state.Preferences.Sources) != 1 || state.Preferences.Sources[0].Path != sourcePath {
 		t.Fatalf("unexpected sources: %#v", state.Preferences.Sources)
+	}
+}
+
+func TestAddSourcesRejectsFiles(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	file := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(file, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(request{Type: "source.add", Payload: json.RawMessage(fmt.Sprintf(`{"paths":[%q]}`, file))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := runtime.handle(context.Background(), payload)
+	if result.OK || result.Error == "" {
+		t.Fatalf("expected directory validation error, got %#v", result)
 	}
 }

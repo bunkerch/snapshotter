@@ -627,6 +627,35 @@ small {
     background: var(--green);
 }
 
+.source-editor {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 6px;
+    padding: 7px 5px;
+    border-bottom: 1px solid var(--separator);
+}
+
+.source-editor input {
+    min-width: 0;
+    height: 27px;
+    padding: 0 8px;
+    border: 1px solid var(--separator);
+    border-radius: 6px;
+    outline: none;
+    color: var(--label);
+    background: var(--material-strong);
+    font-size: 9.5px;
+}
+
+.source-editor input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.source-editor .form-error {
+    grid-column: 1 / -1;
+}
+
 .schedule-editor {
     display: flex;
     align-items: center;

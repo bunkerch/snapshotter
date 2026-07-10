@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -204,8 +206,11 @@ func (r *runtime) addSources(payload json.RawMessage) (applicationState, error) 
 		existing[source.Path] = true
 	}
 	for _, path := range input.Paths {
-		cleaned := filepath.Clean(path)
-		if cleaned == "." || existing[cleaned] {
+		cleaned, err := normalizeSourcePath(path)
+		if err != nil {
+			return applicationState{}, err
+		}
+		if existing[cleaned] {
 			continue
 		}
 		preferences.Sources = append(preferences.Sources, domain.Source{ID: sourceID(cleaned), Path: cleaned, Enabled: true})
@@ -215,6 +220,32 @@ func (r *runtime) addSources(payload json.RawMessage) (applicationState, error) 
 		return applicationState{}, err
 	}
 	return r.state(context.Background())
+}
+
+func normalizeSourcePath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", errors.New("source path is required")
+	}
+	if trimmed == "~" || strings.HasPrefix(trimmed, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home directory: %w", err)
+		}
+		trimmed = filepath.Join(home, strings.TrimPrefix(trimmed, "~/"))
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("resolve source path: %w", err)
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", fmt.Errorf("open source path: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("source path %q is not a directory", absolute)
+	}
+	return filepath.Clean(absolute), nil
 }
 
 func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {

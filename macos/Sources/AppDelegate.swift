@@ -151,17 +151,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     private func chooseSourceFolder(request: BridgeRequest, webView: WKWebView?) {
+        popover.performClose(nil)
         let panel = NSOpenPanel()
+        panel.title = "Choose Folders to Back Up"
+        panel.prompt = "Add"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = false
+        NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
+            defer { self.openPopover() }
             guard response == .OK else {
                 Backend.shared.refresh(requestID: request.id, webView: webView)
                 return
             }
             Backend.shared.addSources(panel.urls, requestID: request.id, webView: webView)
         }
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func chooseRepository(request: BridgeRequest, webView: WKWebView?) {
@@ -170,13 +177,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             Backend.shared.fail("A name and password are required", requestID: request.id, webView: webView)
             return
         }
+        popover.performClose(nil)
         let panel = NSOpenPanel()
         panel.title = "Choose Backup Destination"
         panel.prompt = "Choose"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
+            defer { self.openPopover() }
             guard response == .OK, let destination = panel.url else {
                 Backend.shared.refresh(requestID: request.id, webView: webView)
                 return
@@ -189,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 webView: webView
             )
         }
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func unlockRepository(request: BridgeRequest, webView: WKWebView?) {

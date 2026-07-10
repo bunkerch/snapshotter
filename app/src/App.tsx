@@ -70,6 +70,17 @@ export function App() {
         }
     }
 
+    const addSourcePath = async (path: string) => {
+        setState(
+            normalizeState(
+                await requestNative<ApplicationState>("source.add", {
+                    paths: [path],
+                }),
+            ),
+        )
+        setError(undefined)
+    }
+
     return (
         <main className="app-shell">
             <Header
@@ -97,6 +108,7 @@ export function App() {
                         running={running}
                         onBackup={backupNow}
                         onAddSources={addSources}
+                        onAddSourcePath={addSourcePath}
                         onSnapshots={() => setView("snapshots")}
                     />
                 )}
@@ -285,15 +297,35 @@ function Overview({
     running,
     onBackup,
     onAddSources,
+    onAddSourcePath,
     onSnapshots,
 }: {
     state: ApplicationState
     running: boolean
     onBackup: () => void
-    onAddSources: () => void
+    onAddSources: () => Promise<void>
+    onAddSourcePath: (path: string) => Promise<void>
     onSnapshots: () => void
 }) {
     const latest = state.snapshots[0]
+    const [sourceEditorOpen, setSourceEditorOpen] = useState(false)
+    const [sourcePath, setSourcePath] = useState("")
+    const [sourceError, setSourceError] = useState<string>()
+    const [addingSource, setAddingSource] = useState(false)
+
+    const addTypedSource = async () => {
+        setAddingSource(true)
+        try {
+            await onAddSourcePath(sourcePath)
+            setSourcePath("")
+            setSourceError(undefined)
+            setSourceEditorOpen(false)
+        } catch (error) {
+            setSourceError(message(error))
+        } finally {
+            setAddingSource(false)
+        }
+    }
     return (
         <>
             <section className="hero-card">
@@ -342,8 +374,41 @@ function Overview({
                 title="Folders"
                 action="Add"
                 icon={<Plus size={12} />}
-                onAction={onAddSources}
+                onAction={() => setSourceEditorOpen((open) => !open)}
             />
+            {sourceEditorOpen && (
+                <div className="source-editor">
+                    <input
+                        aria-label="Folder path"
+                        placeholder="~/Documents or /Users/you/Projects"
+                        value={sourcePath}
+                        onChange={(event) => setSourcePath(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" && sourcePath.trim()) {
+                                void addTypedSource()
+                            }
+                        }}
+                    />
+                    <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void onAddSources()}
+                    >
+                        Browse…
+                    </button>
+                    <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!sourcePath.trim() || addingSource}
+                        onClick={() => void addTypedSource()}
+                    >
+                        Add
+                    </button>
+                    {sourceError && (
+                        <span className="form-error">{sourceError}</span>
+                    )}
+                </div>
+            )}
             <section className="list-card source-list">
                 {state.preferences.sources.length === 0 && (
                     <div className="empty-row">No folders selected</div>
