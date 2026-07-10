@@ -40,3 +40,30 @@ func TestNextDisabled(t *testing.T) {
 		t.Fatalf("expected zero time, got %v", next)
 	}
 }
+
+func TestWeeklyBackupRemainsDueAfterScheduledTime(t *testing.T) {
+	configured := domain.Schedule{Enabled: true, Kind: domain.ScheduleWeekly, Weekday: int(time.Monday), Hour: 9}
+	now := time.Date(2026, time.July, 15, 16, 0, 0, 0, time.UTC) // Wednesday
+	lastBackup := time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)
+	due, scheduled, err := Due(now, lastBackup, configured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.July, 13, 9, 0, 0, 0, time.UTC)
+	if !due || !scheduled.Equal(want) {
+		t.Fatalf("got due=%v scheduled=%v, want due at %v", due, scheduled, want)
+	}
+}
+
+func TestWeeklyBackupIsNotDueAfterCompletion(t *testing.T) {
+	configured := domain.Schedule{Enabled: true, Kind: domain.ScheduleWeekly, Weekday: int(time.Monday), Hour: 9}
+	now := time.Date(2026, time.July, 15, 16, 0, 0, 0, time.UTC)
+	lastBackup := time.Date(2026, time.July, 13, 9, 5, 0, 0, time.UTC)
+	due, _, err := Due(now, lastBackup, configured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if due {
+		t.Fatal("completed weekly backup should not be due")
+	}
+}

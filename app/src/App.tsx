@@ -1,11 +1,9 @@
 import {
-    ArchiveRestore,
     ChevronRight,
     Clock3,
     Folder,
     HardDrive,
     LoaderCircle,
-    MoreHorizontal,
     Play,
     Plus,
     Search,
@@ -14,7 +12,7 @@ import {
     Wrench,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { requestNative, sendNative } from "./bridge"
+import { requestNative } from "./bridge"
 import type { ApplicationState, Snapshot } from "./model"
 
 type View = "overview" | "snapshots" | "settings"
@@ -101,13 +99,11 @@ export function App() {
                 <Snapshots snapshots={state.snapshots} />
             )}
             {state?.status === "ready" && view === "settings" && (
-                <Settings state={state} />
+                <Settings
+                    state={state}
+                    onState={(next) => setState(normalizeState(next))}
+                />
             )}
-            <footer className="footer-actions">
-                <button type="button" onClick={() => sendNative("app.quit")}>
-                    Quit
-                </button>
-            </footer>
         </main>
     )
 }
@@ -239,6 +235,7 @@ function Locked({
     onComplete: (state: ApplicationState) => void
 }) {
     const [busy, setBusy] = useState(false)
+    const [error, setError] = useState<string>()
     const unlock = async () => {
         setBusy(true)
         try {
@@ -247,23 +244,32 @@ function Locked({
                     repositoryID: state.preferences.repository?.id,
                 }),
             )
+        } catch (requestError) {
+            setError(message(requestError))
         } finally {
             setBusy(false)
         }
     }
+
+    useEffect(() => {
+        void unlock()
+    }, [])
+
     return (
         <div className="center-state">
             <HardDrive />
             <strong>{state.preferences.repository?.name}</strong>
-            <span>Repository locked</span>
-            <button
-                type="button"
-                className="primary-button"
-                onClick={unlock}
-                disabled={busy}
-            >
-                Unlock
-            </button>
+            <span>{busy ? "Unlocking…" : (error ?? "Repository locked")}</span>
+            {error && (
+                <button
+                    type="button"
+                    className="primary-button"
+                    onClick={unlock}
+                    disabled={busy}
+                >
+                    Try again
+                </button>
+            )}
         </div>
     )
 }
@@ -403,6 +409,14 @@ function SectionTitle({
 }
 
 function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
+    const [query, setQuery] = useState("")
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    const visibleSnapshots = snapshots.filter((snapshot) =>
+        [snapshot.id, snapshot.hostname, formatDate(snapshot.time)]
+            .join(" ")
+            .toLocaleLowerCase()
+            .includes(normalizedQuery),
+    )
     return (
         <section className="page">
             <div className="search">
@@ -410,57 +424,100 @@ function Snapshots({ snapshots }: { snapshots: Snapshot[] }) {
                 <input
                     aria-label="Search backup files"
                     placeholder="Find a file…"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
                 />
             </div>
             <div className="page-heading">
                 <h1>Snapshots</h1>
-                <button type="button" className="secondary-button">
-                    <ArchiveRestore size={14} />
-                    Recover
-                </button>
             </div>
             <div className="timeline">
-                {snapshots.length === 0 && (
+                {visibleSnapshots.length === 0 && (
                     <div className="empty-row">No snapshots yet</div>
                 )}
-                {snapshots.map((snapshot, index) => (
-                    <button
-                        type="button"
-                        className="timeline-row"
-                        key={snapshot.id}
-                    >
+                {visibleSnapshots.map((snapshot, index) => (
+                    <div className="timeline-row" key={snapshot.id}>
                         <div className="timeline-rail">
                             <span />
-                            {index < snapshots.length - 1 && <i />}
+                            {index < visibleSnapshots.length - 1 && <i />}
                         </div>
                         <div className="row-copy">
                             <strong>{formatDate(snapshot.time)}</strong>
                             <small>{snapshot.hostname}</small>
                         </div>
-                        <MoreHorizontal size={17} />
-                    </button>
+                    </div>
                 ))}
             </div>
         </section>
     )
 }
 
-function Settings({ state }: { state: ApplicationState }) {
+function Settings({
+    state,
+    onState,
+}: {
+    state: ApplicationState
+    onState: (state: ApplicationState) => void
+}) {
     const preferences = state.preferences
+    const [retentionOpen, setRetentionOpen] = useState(false)
+    const [retention, setRetention] = useState(preferences.retention)
+    const [checking, setChecking] = useState(false)
+    const [checkResult, setCheckResult] = useState<string>()
+
+    const updateSchedule = async (
+        changes: Partial<typeof preferences.schedule>,
+    ) => {
+        onState(
+            await requestNative<ApplicationState>("schedule.set", {
+                ...preferences.schedule,
+                ...changes,
+            }),
+        )
+    }
+
+    const updateLaunchAtLogin = async () => {
+        onState(
+            await requestNative<ApplicationState>("launchAtLogin.set", {
+                enabled: !preferences.launchAtLogin,
+            }),
+        )
+    }
+
+    const saveRetention = async () => {
+        onState(
+            await requestNative<ApplicationState>("retention.set", retention),
+        )
+        setRetentionOpen(false)
+    }
+
+    const checkRepository = async () => {
+        setChecking(true)
+        setCheckResult(undefined)
+        try {
+            onState(await requestNative<ApplicationState>("repository.check"))
+            setCheckResult("No issues found")
+        } catch (error) {
+            setCheckResult(message(error))
+        } finally {
+            setChecking(false)
+        }
+    }
+
+    const timeValue = `${String(preferences.schedule.hour).padStart(2, "0")}:${String(preferences.schedule.minute).padStart(2, "0")}`
     return (
         <section className="page settings-page">
             <div className="page-heading">
                 <h1>Settings</h1>
             </div>
             <h3>Repository</h3>
-            <button type="button" className="setting-row">
+            <div className="setting-row">
                 <HardDrive size={17} />
                 <span>
                     <strong>{preferences.repository?.name}</strong>
                     <small>{preferences.repository?.location}</small>
                 </span>
-                <ChevronRight size={15} />
-            </button>
+            </div>
             <h3>Schedule</h3>
             <div className="settings-card">
                 <label>
@@ -471,6 +528,12 @@ function Settings({ state }: { state: ApplicationState }) {
                     <button
                         type="button"
                         className={`switch ${preferences.schedule.enabled ? "on" : ""}`}
+                        aria-label="Toggle automatic backups"
+                        onClick={() =>
+                            void updateSchedule({
+                                enabled: !preferences.schedule.enabled,
+                            })
+                        }
                     >
                         <span />
                     </button>
@@ -482,13 +545,79 @@ function Settings({ state }: { state: ApplicationState }) {
                     <button
                         type="button"
                         className={`switch ${preferences.launchAtLogin ? "on" : ""}`}
+                        aria-label="Toggle start at login"
+                        onClick={() => void updateLaunchAtLogin()}
                     >
                         <span />
                     </button>
                 </label>
+                {preferences.schedule.enabled && (
+                    <div className="schedule-editor">
+                        <div className="schedule-kind">
+                            <button
+                                type="button"
+                                className={
+                                    preferences.schedule.kind === "daily"
+                                        ? "selected"
+                                        : ""
+                                }
+                                onClick={() =>
+                                    void updateSchedule({ kind: "daily" })
+                                }
+                            >
+                                Daily
+                            </button>
+                            <button
+                                type="button"
+                                className={
+                                    preferences.schedule.kind === "weekly"
+                                        ? "selected"
+                                        : ""
+                                }
+                                onClick={() =>
+                                    void updateSchedule({ kind: "weekly" })
+                                }
+                            >
+                                Weekly
+                            </button>
+                        </div>
+                        {preferences.schedule.kind === "weekly" && (
+                            <select
+                                aria-label="Backup weekday"
+                                value={preferences.schedule.weekday}
+                                onChange={(event) =>
+                                    void updateSchedule({
+                                        weekday: Number(event.target.value),
+                                    })
+                                }
+                            >
+                                {weekdays.map((day, index) => (
+                                    <option value={index} key={day}>
+                                        {day}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                        <input
+                            aria-label="Backup time"
+                            type="time"
+                            value={timeValue}
+                            onChange={(event) => {
+                                const [hour, minute] = event.target.value
+                                    .split(":")
+                                    .map(Number)
+                                void updateSchedule({ hour, minute })
+                            }}
+                        />
+                    </div>
+                )}
             </div>
             <h3>Retention</h3>
-            <button type="button" className="setting-row">
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => setRetentionOpen((open) => !open)}
+            >
                 <Clock3 size={17} />
                 <span>
                     <strong>Smart retention</strong>
@@ -498,15 +627,59 @@ function Settings({ state }: { state: ApplicationState }) {
                         {preferences.retention.weekly} weekly
                     </small>
                 </span>
-                <ChevronRight size={15} />
+                <ChevronRight
+                    className={retentionOpen ? "expanded" : ""}
+                    size={15}
+                />
             </button>
+            {retentionOpen && (
+                <div className="retention-editor">
+                    {(["hourly", "daily", "weekly", "monthly"] as const).map(
+                        (period) => (
+                            <label key={period}>
+                                <span>
+                                    {period[0].toUpperCase() + period.slice(1)}
+                                </span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="999"
+                                    value={retention[period]}
+                                    onChange={(event) =>
+                                        setRetention((current) => ({
+                                            ...current,
+                                            [period]: Number(
+                                                event.target.value,
+                                            ),
+                                        }))
+                                    }
+                                />
+                            </label>
+                        ),
+                    )}
+                    <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void saveRetention()}
+                    >
+                        Apply
+                    </button>
+                </div>
+            )}
             <h3>Maintenance</h3>
-            <button type="button" className="setting-row">
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => void checkRepository()}
+                disabled={checking}
+            >
                 <Wrench size={17} />
                 <span>
-                    <strong>Check repository</strong>
+                    <strong>
+                        {checking ? "Checking…" : "Check repository"}
+                    </strong>
+                    {checkResult && <small>{checkResult}</small>}
                 </span>
-                <ChevronRight size={15} />
             </button>
         </section>
     )
@@ -539,10 +712,23 @@ function formatRelative(value: string) {
 }
 function scheduleLabel(state: ApplicationState) {
     const schedule = state.preferences.schedule
+    if (schedule.kind === "weekly") {
+        return `${weekdays[schedule.weekday]} at ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
+    }
     return schedule.kind === "hourly"
         ? `Every ${schedule.interval === 1 ? "hour" : `${schedule.interval} hours`}`
         : `Daily at ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
 }
+
+const weekdays = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
 
 function normalizeState(state: ApplicationState): ApplicationState {
     return {

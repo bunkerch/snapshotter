@@ -8,9 +8,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NotificationCenter.default.addObserver(self, selector: #selector(engineActivityChanged(_:)), name: .engineActivityChanged, object: nil)
         configureMainMenu()
         configurePopover()
         configureStatusItem()
+    }
+
+    @objc private func engineActivityChanged(_ notification: Notification) {
+        guard let button = statusItem?.button,
+              let active = notification.userInfo?["active"] as? Bool else { return }
+        if active {
+            button.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Backup running")
+            button.image?.isTemplate = true
+            button.wantsLayer = true
+            let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+            rotation.fromValue = 0
+            rotation.toValue = Double.pi * 2
+            rotation.duration = 1.25
+            rotation.repeatCount = .infinity
+            button.layer?.add(rotation, forKey: "snapshotter.backup.rotation")
+        } else {
+            button.layer?.removeAnimation(forKey: "snapshotter.backup.rotation")
+            button.image = NSImage(systemSymbolName: "shield.checkered", accessibilityDescription: "Snapshotter")
+            button.image?.isTemplate = true
+        }
     }
 
     private func configureMainMenu() {
@@ -51,20 +72,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         button.image?.isTemplate = true
         button.target = self
         button.action = #selector(togglePopover)
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            showStatusMenu(from: button)
+            return
+        }
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            if let window = popover.contentViewController?.view.window {
-                window.isOpaque = false
-                window.backgroundColor = .clear
-                window.makeKey()
-            }
+            openPopover()
         }
+    }
+
+    @objc private func openPopover() {
+        guard let button = statusItem.button else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        if let window = popover.contentViewController?.view.window {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.makeKey()
+        }
+    }
+
+    private func showStatusMenu(from button: NSStatusBarButton) {
+        popover.performClose(nil)
+        let menu = NSMenu()
+        let open = menu.addItem(withTitle: "Open Snapshotter", action: #selector(openPopover), keyEquivalent: "")
+        open.target = self
+        menu.addItem(.separator())
+        let quit = menu.addItem(withTitle: "Quit Snapshotter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -77,7 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.create.choose": chooseRepository(request: request, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, webView: message.webView)
-        case "launchAtLogin.set": setLaunchAtLogin(enabled: request.payload?.enabled == true)
+        case "launchAtLogin.set": setLaunchAtLogin(
+            enabled: request.payload?.enabled == true,
+            request: raw,
+            requestID: request.id,
+            webView: message.webView
+        )
         default: Backend.shared.handle(raw, requestID: request.id, webView: message.webView)
         }
     }
@@ -131,12 +178,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         Backend.shared.unlockRepository(repositoryID: repositoryID, requestID: request.id, webView: webView)
     }
 
-    private func setLaunchAtLogin(enabled: Bool) {
+    private func setLaunchAtLogin(enabled: Bool, request: String, requestID: String?, webView: WKWebView?) {
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
+            Backend.shared.handle(request, requestID: requestID, webView: webView)
         } catch {
-            NSLog("Unable to update launch at login: \(error.localizedDescription)")
+            Backend.shared.fail(error.localizedDescription, requestID: requestID, webView: webView)
         }
     }
 }
@@ -202,14 +250,28 @@ private final class Backend: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
     private let keychain = KeychainStore()
     private let engine: Result<EngineBridge, Error>
+    private var scheduleTimer: DispatchSourceTimer?
 
     private init() {
         engine = Result { try EngineBridge() }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 10, repeating: 60)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            Self.setActivity(true)
+            defer { Self.setActivity(false) }
+            _ = try? self.engine.get().handle(#"{"type":"schedule.tick"}"#)
+        }
+        timer.resume()
+        scheduleTimer = timer
     }
 
     func handle(_ rawRequest: String, requestID: String?, webView: WKWebView?) {
         let reference = WebViewReference(webView)
+        let showsActivity = Self.requestType(rawRequest).map { $0 == "backup.start" || $0 == "schedule.tick" } == true
         queue.async {
+            if showsActivity { Self.setActivity(true) }
+            defer { if showsActivity { Self.setActivity(false) } }
             do {
                 let response = try self.engine.get().handle(rawRequest)
                 Self.respond(response, requestID: requestID, reference: reference)
@@ -300,6 +362,18 @@ private final class Backend: @unchecked Sendable {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         return object["ok"] as? Bool == true
     }
+
+    private static func requestType(_ request: String) -> String? {
+        guard let data = request.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object["type"] as? String
+    }
+
+    private static func setActivity(_ active: Bool) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .engineActivityChanged, object: nil, userInfo: ["active": active])
+        }
+    }
 }
 
 private final class WebViewReference: @unchecked Sendable {
@@ -308,4 +382,8 @@ private final class WebViewReference: @unchecked Sendable {
     init(_ webView: WKWebView?) {
         self.webView = webView
     }
+}
+
+private extension Notification.Name {
+    static let engineActivityChanged = Notification.Name("app.snapshotter.engineActivityChanged")
 }

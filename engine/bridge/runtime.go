@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/restic/restic/app/config"
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/resticadapter"
+	scheduler "github.com/restic/restic/app/schedule"
 	"github.com/restic/restic/app/service"
 )
 
@@ -64,6 +66,16 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.unlockRepository(ctx, req.Payload)
 	case "backup.start":
 		data, err = r.backup(ctx)
+	case "schedule.set":
+		data, err = r.setSchedule(req.Payload)
+	case "schedule.tick":
+		data, err = r.scheduleTick(ctx, time.Now())
+	case "retention.set":
+		data, err = r.setRetention(req.Payload)
+	case "launchAtLogin.set":
+		data, err = r.setLaunchAtLogin(req.Payload)
+	case "repository.check":
+		data, err = r.checkRepository(ctx)
 	default:
 		err = fmt.Errorf("unsupported request type %q", req.Type)
 	}
@@ -71,6 +83,84 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		return failed(err)
 	}
 	return response{OK: true, Data: data}
+}
+
+func (r *runtime) checkRepository(ctx context.Context) (applicationState, error) {
+	operationContext, done, err := r.coordinator.Start(ctx)
+	if err != nil {
+		return applicationState{}, err
+	}
+	defer done()
+	if err := r.repository.Check(operationContext, nil); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(ctx)
+}
+
+func (r *runtime) setRetention(payload json.RawMessage) (applicationState, error) {
+	var retention domain.RetentionPolicy
+	if err := json.Unmarshal(payload, &retention); err != nil {
+		return applicationState{}, fmt.Errorf("decode retention: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	preferences.Retention = retention
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) setLaunchAtLogin(payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode launch at login: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	preferences.LaunchAtLogin = input.Enabled
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) setSchedule(payload json.RawMessage) (applicationState, error) {
+	var configured domain.Schedule
+	if err := json.Unmarshal(payload, &configured); err != nil {
+		return applicationState{}, fmt.Errorf("decode schedule: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	preferences.Schedule = configured
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) scheduleTick(ctx context.Context, now time.Time) (applicationState, error) {
+	state, err := r.state(ctx)
+	if err != nil || state.Status != "ready" || len(state.Preferences.Sources) == 0 {
+		return state, err
+	}
+	var lastBackup time.Time
+	if len(state.Snapshots) > 0 {
+		lastBackup = state.Snapshots[0].Time
+	}
+	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
+	if err != nil || !due {
+		return state, err
+	}
+	return r.backup(ctx)
 }
 
 func (r *runtime) state(ctx context.Context) (applicationState, error) {

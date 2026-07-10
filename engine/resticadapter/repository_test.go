@@ -90,6 +90,9 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if len(snapshots) != 1 || snapshots[0].ID != snapshot.ID {
 		t.Fatalf("unexpected snapshots: %#v", snapshots)
 	}
+	if err := adapter.Check(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestUnlockRejectsWrongPassword(t *testing.T) {

@@ -38,6 +38,7 @@ type ScheduleKind string
 const (
 	ScheduleHourly ScheduleKind = "hourly"
 	ScheduleDaily  ScheduleKind = "daily"
+	ScheduleWeekly ScheduleKind = "weekly"
 )
 
 type Schedule struct {
@@ -46,6 +47,7 @@ type Schedule struct {
 	Interval int          `json:"interval"`
 	Hour     int          `json:"hour"`
 	Minute   int          `json:"minute"`
+	Weekday  int          `json:"weekday"`
 }
 
 type Preferences struct {
@@ -63,8 +65,9 @@ func DefaultPreferences() Preferences {
 		Sources: []Source{},
 		Schedule: Schedule{
 			Enabled:  true,
-			Kind:     ScheduleHourly,
+			Kind:     ScheduleDaily,
 			Interval: 1,
+			Hour:     9,
 		},
 		Retention: RetentionPolicy{
 			Hourly:  24,

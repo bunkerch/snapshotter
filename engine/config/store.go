@@ -36,6 +36,9 @@ func (s *Store) Load() (domain.Preferences, error) {
 	if err := json.Unmarshal(data, &preferences); err != nil {
 		return domain.Preferences{}, fmt.Errorf("decode preferences: %w", err)
 	}
+	if preferences.Schedule.Kind == domain.ScheduleHourly {
+		preferences.Schedule = domain.DefaultPreferences().Schedule
+	}
 	if err := Validate(preferences); err != nil {
 		return domain.Preferences{}, err
 	}

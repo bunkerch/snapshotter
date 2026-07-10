@@ -14,7 +14,7 @@ func TestStoreReturnsDefaultsWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !preferences.Schedule.Enabled || preferences.Retention.Daily != 7 {
+	if !preferences.Schedule.Enabled || preferences.Schedule.Kind != domain.ScheduleDaily || preferences.Retention.Daily != 7 {
 		t.Fatalf("unexpected defaults: %#v", preferences)
 	}
 }
@@ -47,7 +47,7 @@ func TestStoreRoundTrip(t *testing.T) {
 func TestStoreRejectsInvalidPreferences(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "preferences.json"))
 	preferences := domain.DefaultPreferences()
-	preferences.Schedule.Interval = 0
+	preferences.Schedule.Hour = 25
 	if err := store.Save(preferences); err == nil {
 		t.Fatal("expected validation error")
 	}

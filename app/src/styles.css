@@ -431,6 +431,7 @@ small {
 }
 
 .timeline {
+    margin: 0 5px;
     border-top: 1px solid var(--separator);
 }
 
@@ -440,7 +441,7 @@ small {
     min-height: 62px;
     align-items: flex-start;
     gap: 9px;
-    padding: 9px 5px;
+    padding: 9px 0;
     border-bottom: 1px solid var(--separator);
     text-align: left;
 }
@@ -486,37 +487,6 @@ small {
 
 .setting-row > svg:first-child {
     color: var(--accent);
-}
-
-footer {
-    margin-top: 9px;
-    padding: 7px 5px 0;
-    border-top: 1px solid var(--separator);
-    color: var(--tertiary);
-    font-size: 8.5px;
-}
-
-.footer-actions {
-    justify-content: flex-end;
-}
-
-.footer-status {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-footer button {
-    padding: 3px;
-    color: var(--secondary);
-    font-size: 8.5px;
-}
-
-.online-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--green);
 }
 
 .center-state,
@@ -632,6 +602,85 @@ footer button {
 
 .source-status.enabled {
     background: var(--green);
+}
+
+.schedule-editor {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 5px;
+    border-top: 1px solid var(--separator);
+}
+
+.schedule-kind {
+    display: flex;
+    padding: 2px;
+    border-radius: 5px;
+    background: var(--fill);
+}
+
+.schedule-kind button {
+    padding: 3px 7px;
+    border-radius: 4px;
+    color: var(--secondary);
+    font-size: 9px;
+}
+
+.schedule-kind .selected {
+    color: var(--label);
+    background: var(--material-strong);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+}
+
+.schedule-editor select,
+.schedule-editor input,
+.retention-editor input {
+    min-width: 0;
+    height: 24px;
+    border: 1px solid var(--separator);
+    border-radius: 5px;
+    color: var(--label);
+    background: var(--material-strong);
+    font-size: 9px;
+}
+
+.schedule-editor select {
+    max-width: 82px;
+}
+
+.schedule-editor input {
+    width: 72px;
+}
+
+.expanded {
+    transform: rotate(90deg);
+}
+
+.retention-editor {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 12px;
+    padding: 9px 5px;
+    border-bottom: 1px solid var(--separator);
+}
+
+.retention-editor label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--secondary);
+    font-size: 9px;
+}
+
+.retention-editor input {
+    width: 48px;
+    padding: 0 4px;
+}
+
+.retention-editor .primary-button {
+    width: fit-content;
+    grid-column: 2;
+    justify-self: end;
 }
 
 @media (prefers-reduced-motion: reduce) {

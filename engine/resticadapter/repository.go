@@ -186,6 +186,33 @@ func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
 	return snapshots, nil
 }
 
+func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo == nil {
+		return errors.New("repository is not open")
+	}
+	emitProgress(sink, service.Progress{Phase: "checking-index"})
+	checker := r.repo.Checker()
+	hints, indexErrors := checker.LoadIndex(ctx, nil)
+	if len(indexErrors) > 0 {
+		return fmt.Errorf("check repository index: %w", indexErrors[0])
+	}
+	if len(hints) > 0 {
+		return fmt.Errorf("repository index requires attention: %w", hints[0])
+	}
+	emitProgress(sink, service.Progress{Phase: "checking-packs"})
+	packErrors := make(chan error)
+	go checker.Packs(ctx, packErrors)
+	for packError := range packErrors {
+		if packError != nil {
+			return fmt.Errorf("check repository packs: %w", packError)
+		}
+	}
+	emitProgress(sink, service.Progress{Phase: "complete", Fraction: 1})
+	return nil
+}
+
 func (r *Repository) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

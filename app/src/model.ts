@@ -14,10 +14,11 @@ export interface Source {
 
 export interface Schedule {
     enabled: boolean
-    kind: "hourly" | "daily"
+    kind: "hourly" | "daily" | "weekly"
     interval: number
     hour: number
     minute: number
+    weekday: number
 }
 
 export interface RetentionPolicy {

@@ -37,9 +37,12 @@ func validateSchedule(schedule domain.Schedule) error {
 		if schedule.Interval < 1 || schedule.Interval > 24 {
 			return errors.New("hourly interval must be between 1 and 24")
 		}
-	case domain.ScheduleDaily:
+	case domain.ScheduleDaily, domain.ScheduleWeekly:
 		if schedule.Hour < 0 || schedule.Hour > 23 || schedule.Minute < 0 || schedule.Minute > 59 {
-			return errors.New("daily schedule time is invalid")
+			return errors.New("schedule time is invalid")
+		}
+		if schedule.Kind == domain.ScheduleWeekly && (schedule.Weekday < 0 || schedule.Weekday > 6) {
+			return errors.New("weekly schedule weekday is invalid")
 		}
 	default:
 		return fmt.Errorf("unsupported schedule kind %q", schedule.Kind)
