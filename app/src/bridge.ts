@@ -2,7 +2,11 @@ import type { Dashboard } from "./model"
 
 declare global {
     interface Window {
-        resticNative?: { request(message: string): void }
+        webkit?: {
+            messageHandlers?: {
+                resticNative?: { postMessage(message: string): void }
+            }
+        }
     }
 }
 
@@ -68,5 +72,11 @@ export const initialDashboard: Dashboard = {
 }
 
 export function sendNative(type: string, payload: unknown = {}) {
-    window.resticNative?.request(JSON.stringify({ type, payload }))
+    window.webkit?.messageHandlers?.resticNative?.postMessage(
+        JSON.stringify({ type, payload }),
+    )
+}
+
+export function isNativeHost() {
+    return Boolean(window.webkit?.messageHandlers?.resticNative)
 }

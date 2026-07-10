@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc -b && vite build",
-        "test": "vitest run",
+        "test": "vitest run --environment jsdom",
         "check": "tsc -b",
         "lint": "biome check .",
         "format": "biome format --write .",
