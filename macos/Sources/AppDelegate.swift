@@ -160,6 +160,9 @@ private final class WebViewController: NSViewController {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .clear
+        #if DEBUG
+        webView.isInspectable = true
+        #endif
         webView.translatesAutoresizingMaskIntoConstraints = false
         materialView.addSubview(webView)
         NSLayoutConstraint.activate([

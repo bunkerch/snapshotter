@@ -36,6 +36,9 @@ A shield icon appears in the macOS menu bar. Click it to open the app. No Dock
 icon or regular window appears because Snapshotter runs as a menu-bar accessory.
 Stop the native process with **Control-C**, or click **Quit** in the popover.
 
+Debug builds enable WKWebView inspection. Right-click inside the popover and
+choose **Inspect Element**, or attach through Safari's **Develop** menu.
+
 If the shield is not visible, check the menu-bar overflow area and confirm the
 Vite terminal is still running. Build each layer independently with:
 
