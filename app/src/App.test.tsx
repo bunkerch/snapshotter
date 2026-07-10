@@ -151,6 +151,41 @@ describe("Snapshotter app", () => {
         })
     })
 
+    it("opens an existing remote repository", async () => {
+        vi.mocked(requestNative).mockResolvedValueOnce({
+            ...readyState,
+            status: "unconfigured",
+            preferences: {
+                ...readyState.preferences,
+                repository: undefined,
+                sources: [],
+            },
+            snapshots: [],
+        })
+        render(<App />)
+        await screen.findByText("Set up your backup")
+
+        fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
+        fireEvent.click(screen.getByRole("button", { name: "SFTP" }))
+        fireEvent.change(screen.getByLabelText("Password"), {
+            target: { value: "repository-secret" },
+        })
+        fireEvent.change(screen.getByLabelText("Destination"), {
+            target: { value: "sftp:user@example.com:/archive" },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Open repository" }))
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "repository.open.remote",
+                expect.objectContaining({
+                    kind: "sftp",
+                    location: "sftp:user@example.com:/archive",
+                }),
+            )
+        })
+    })
+
     it("renders persisted sources and browses real snapshot entries", async () => {
         render(<App />)
 

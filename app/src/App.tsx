@@ -199,6 +199,9 @@ function Setup({
     const [name, setName] = useState("My Backup")
     const [password, setPassword] = useState("")
     const [kind, setKind] = useState<"local" | "s3" | "sftp" | "rest">("local")
+    const [repositoryMode, setRepositoryMode] = useState<"create" | "open">(
+        "create",
+    )
     const [location, setLocation] = useState("")
     const [username, setUsername] = useState("")
     const [backendPassword, setBackendPassword] = useState("")
@@ -214,8 +217,12 @@ function Setup({
             onComplete(
                 await requestNative<ApplicationState>(
                     kind === "local"
-                        ? "repository.create.choose"
-                        : "repository.create.remote",
+                        ? repositoryMode === "create"
+                            ? "repository.create.choose"
+                            : "repository.open.choose"
+                        : repositoryMode === "create"
+                          ? "repository.create.remote"
+                          : "repository.open.remote",
                     {
                         name,
                         password,
@@ -245,6 +252,25 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
+            <fieldset
+                className="repository-mode"
+                aria-label="Repository action"
+            >
+                <button
+                    type="button"
+                    className={repositoryMode === "create" ? "selected" : ""}
+                    onClick={() => setRepositoryMode("create")}
+                >
+                    New repository
+                </button>
+                <button
+                    type="button"
+                    className={repositoryMode === "open" ? "selected" : ""}
+                    onClick={() => setRepositoryMode("open")}
+                >
+                    Open existing
+                </button>
+            </fieldset>
             <fieldset
                 className="destination-kind"
                 aria-label="Destination type"
@@ -362,10 +388,16 @@ function Setup({
                 onClick={create}
             >
                 {busy
-                    ? "Creating…"
+                    ? repositoryMode === "create"
+                        ? "Creating…"
+                        : "Opening…"
                     : kind === "local"
-                      ? "Choose destination…"
-                      : "Create repository"}
+                      ? repositoryMode === "create"
+                          ? "Choose destination…"
+                          : "Choose repository…"
+                      : repositoryMode === "create"
+                        ? "Create repository"
+                        : "Open repository"}
             </button>
         </section>
     )

@@ -64,6 +64,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.addSources(req.Payload)
 	case "repository.create":
 		data, err = r.createRepository(ctx, req.Payload)
+	case "repository.connect":
+		data, err = r.connectRepository(ctx, req.Payload)
 	case "repository.unlock":
 		data, err = r.unlockRepository(ctx, req.Payload)
 	case "backup.start":
@@ -334,6 +336,31 @@ func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage)
 		return applicationState{}, fmt.Errorf("decode repository: %w", err)
 	}
 	if err := r.repository.Initialize(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
+		return applicationState{}, err
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		_ = r.repository.Close()
+		return applicationState{}, err
+	}
+	preferences.Repository = &input.Repository
+	if err := r.store.Save(preferences); err != nil {
+		_ = r.repository.Close()
+		return applicationState{}, err
+	}
+	return r.state(ctx)
+}
+
+func (r *runtime) connectRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		Repository  domain.Repository            `json:"repository"`
+		Credentials domain.RepositoryCredentials `json:"credentials"`
+		Password    string                       `json:"password"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode repository: %w", err)
+	}
+	if err := r.repository.Unlock(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
 	}
 	preferences, err := r.store.Load()

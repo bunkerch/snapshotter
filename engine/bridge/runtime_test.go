@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/restic/restic/app/domain"
+	"github.com/restic/restic/app/resticadapter"
 )
 
 func TestStateCollectionsEncodeAsArrays(t *testing.T) {
@@ -61,4 +64,44 @@ func TestAddSourcesRejectsFiles(t *testing.T) {
 	if result.OK || result.Error == "" {
 		t.Fatalf("expected directory validation error, got %#v", result)
 	}
+}
+
+func TestConnectExistingRepository(t *testing.T) {
+	repositoryPath := filepath.Join(t.TempDir(), "repository")
+	configured := domain.Repository{
+		ID: "existing", Name: "Existing", Kind: domain.RepositoryLocal, Location: repositoryPath,
+	}
+	creator := &resticadapter.Repository{}
+	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := creator.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	payload, err := json.Marshal(request{Type: "repository.connect", Payload: mustJSON(t, map[string]any{
+		"repository": configured,
+		"password":   "secret",
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := runtime.handle(context.Background(), payload)
+	if !result.OK {
+		t.Fatal(result.Error)
+	}
+	state := result.Data.(applicationState)
+	if state.Status != "ready" || state.Preferences.Repository == nil || state.Preferences.Repository.Location != repositoryPath {
+		t.Fatalf("unexpected connected state: %#v", state)
+	}
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
