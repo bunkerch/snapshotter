@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+dist/
+*.tsbuildinfo
+.build/
+.swiftpm/
+.DS_Store
+*.xcarchive

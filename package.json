@@ -1,0 +1,37 @@
+{
+    "name": "restic-app",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "test": "vitest run",
+        "check": "tsc -b",
+        "lint": "biome check .",
+        "format": "biome format --write .",
+        "prepare": "husky"
+    },
+    "lint-staged": {
+        "*": "biome check --write --no-errors-on-unmatched"
+    },
+    "dependencies": {
+        "@vitejs/plugin-react": "latest",
+        "lucide-react": "latest",
+        "react": "latest",
+        "react-dom": "latest",
+        "vite": "latest"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.5.3",
+        "@testing-library/react": "latest",
+        "@types/react": "latest",
+        "@types/react-dom": "latest",
+        "husky": "^9.1.7",
+        "jsdom": "latest",
+        "lint-staged": "^17.0.8",
+        "typescript": "latest",
+        "vitest": "latest"
+    },
+    "packageManager": "pnpm@10.12.1"
+}

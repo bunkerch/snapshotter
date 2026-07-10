@@ -1,0 +1,14 @@
+#!/bin/sh
+
+if ! command -v pnpm >/dev/null 2>&1; then
+    export PNPM_HOME="${PNPM_HOME:-$HOME/Library/pnpm}"
+    export PATH="$PNPM_HOME:$HOME/.local/share/pnpm:/opt/homebrew/bin:/usr/local/bin:$PATH"
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+    echo "pnpm is required for pre-commit hooks but was not found on PATH." >&2
+    echo "Install pnpm or set PNPM_HOME so Git clients can find it." >&2
+    exit 1
+fi
+
+pnpm lint-staged
