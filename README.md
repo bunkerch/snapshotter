@@ -64,6 +64,19 @@ make verify
 This checks Biome, UI tests, the production frontend, Go race tests, strict
 Swift compilation, app signing, the bundle plist, and DMG integrity.
 
+Remote backends have an opt-in live lifecycle test. Supply a unique test
+repository location and credentials through `SNAPSHOTTER_TEST_REPOSITORY_*`
+environment variables, then run:
+
+```sh
+cd engine
+go test ./resticadapter -run '^TestLiveRemoteRepository$' -count=1
+```
+
+The test creates an encrypted repository, backs up and restores a file, checks
+the repository, then deletes the snapshot and prunes its data. Never target a
+production repository.
+
 The host loads the Vite server in debug builds. Release packaging will bundle the
 generated web assets into the application.
 
