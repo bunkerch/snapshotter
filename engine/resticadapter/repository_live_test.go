@@ -34,6 +34,21 @@ func TestLiveRemoteRepository(t *testing.T) {
 	if err := adapter.Initialize(context.Background(), repository, credentials, []byte(password)); err != nil {
 		t.Fatalf("initialize live repository: %v", err)
 	}
+	repositoryID, ok := adapter.ID()
+	if !ok || repositoryID == "" {
+		t.Fatal("initialized live repository has no ID")
+	}
+	if err := adapter.Close(); err != nil {
+		t.Fatalf("close live repository: %v", err)
+	}
+	adapter = &Repository{}
+	if err := adapter.Unlock(context.Background(), repository, credentials, []byte(password)); err != nil {
+		t.Fatalf("reopen live repository: %v", err)
+	}
+	reopenedID, ok := adapter.ID()
+	if !ok || reopenedID != repositoryID {
+		t.Fatalf("reopened repository ID %q does not match %q", reopenedID, repositoryID)
+	}
 	defer adapter.Close()
 	snapshot, err := adapter.Backup(context.Background(), []domain.Source{{ID: "live", Path: source, Enabled: true}}, nil)
 	if err != nil {
