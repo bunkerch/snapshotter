@@ -634,6 +634,7 @@ function Overview({
                     </div>
                 ))}
             </section>
+            <BackupContentControls state={state} onState={onState} />
             <SectionTitle
                 title="Recent"
                 action="All snapshots"
@@ -663,6 +664,181 @@ function Overview({
     )
 }
 
+function BackupContentControls({
+    state,
+    onState,
+}: {
+    state: ApplicationState
+    onState: (state: ApplicationState) => void
+}) {
+    const [applicationsOpen, setApplicationsOpen] = useState(false)
+    const [exclusionsOpen, setExclusionsOpen] = useState(false)
+    const [customExclusion, setCustomExclusion] = useState("")
+    const [contentError, setContentError] = useState<string>()
+
+    const update = async (type: string, payload: object) => {
+        try {
+            onState(
+                normalizeState(
+                    await requestNative<ApplicationState>(type, payload),
+                ),
+            )
+            setContentError(undefined)
+        } catch (error) {
+            setContentError(message(error))
+        }
+    }
+
+    const addExclusion = async () => {
+        if (!customExclusion.trim()) return
+        await update("exclusion.add", { pattern: customExclusion })
+        setCustomExclusion("")
+    }
+
+    return (
+        <section className="backup-content">
+            <SectionTitle
+                title="Applications"
+                action={applicationsOpen ? "Hide" : "Choose"}
+                onAction={() => setApplicationsOpen((open) => !open)}
+            />
+            {!applicationsOpen &&
+                state.applicationPresets.some(
+                    (application) => application.enabled,
+                ) && (
+                    <div className="selected-apps">
+                        {state.applicationPresets
+                            .filter((application) => application.enabled)
+                            .map((application) => application.name)
+                            .join(", ")}
+                    </div>
+                )}
+            {applicationsOpen && (
+                <div className="choice-editor">
+                    {state.applicationPresets.map((application) => (
+                        <label
+                            key={application.id}
+                            className={
+                                !application.available ? "unavailable" : ""
+                            }
+                        >
+                            <span>
+                                <strong>{application.name}</strong>
+                                <small title={application.paths.join("\n")}>
+                                    {application.available
+                                        ? application.paths
+                                              .map(compactPresetPath)
+                                              .join(", ")
+                                        : "Not installed"}
+                                </small>
+                            </span>
+                            <button
+                                type="button"
+                                className={`switch ${application.enabled ? "on" : ""}`}
+                                aria-label={`Back up ${application.name}`}
+                                disabled={!application.available}
+                                onClick={() =>
+                                    void update("application.setEnabled", {
+                                        id: application.id,
+                                        enabled: !application.enabled,
+                                    })
+                                }
+                            >
+                                <span />
+                            </button>
+                        </label>
+                    ))}
+                </div>
+            )}
+            <SectionTitle
+                title="Exclusions"
+                action={exclusionsOpen ? "Hide" : "Manage"}
+                onAction={() => setExclusionsOpen((open) => !open)}
+            />
+            {!exclusionsOpen && (
+                <div className="exclusion-summary">
+                    {
+                        state.preferences.exclusions.filter(
+                            (rule) => rule.enabled,
+                        ).length
+                    }{" "}
+                    active rules
+                </div>
+            )}
+            {exclusionsOpen && (
+                <div className="choice-editor exclusions-editor">
+                    <p>
+                        Skips reproducible dependencies, build output, and
+                        caches inside every selected source.
+                    </p>
+                    {state.preferences.exclusions.map((exclusion) => (
+                        <label key={exclusion.id}>
+                            <span>
+                                <strong className="pattern-label">
+                                    {exclusion.pattern}
+                                </strong>
+                                <small>
+                                    {exclusion.builtin ? "Built in" : "Custom"}
+                                </small>
+                            </span>
+                            {!exclusion.builtin && (
+                                <button
+                                    type="button"
+                                    className="row-action"
+                                    aria-label={`Remove ${exclusion.pattern}`}
+                                    onClick={() =>
+                                        void update("exclusion.remove", {
+                                            id: exclusion.id,
+                                        })
+                                    }
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className={`switch ${exclusion.enabled ? "on" : ""}`}
+                                aria-label={`Toggle ${exclusion.pattern}`}
+                                onClick={() =>
+                                    void update("exclusion.setEnabled", {
+                                        id: exclusion.id,
+                                        enabled: !exclusion.enabled,
+                                    })
+                                }
+                            >
+                                <span />
+                            </button>
+                        </label>
+                    ))}
+                    <form
+                        className="exclusion-form"
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            void addExclusion()
+                        }}
+                    >
+                        <input
+                            aria-label="Custom exclusion pattern"
+                            value={customExclusion}
+                            placeholder="**/.generated"
+                            onChange={(event) =>
+                                setCustomExclusion(event.target.value)
+                            }
+                        />
+                        <button
+                            type="submit"
+                            disabled={!customExclusion.trim()}
+                        >
+                            Add
+                        </button>
+                    </form>
+                </div>
+            )}
+            {contentError && <div className="form-error">{contentError}</div>}
+        </section>
+    )
+}
+
 function SectionTitle({
     title,
     action,
@@ -677,7 +853,11 @@ function SectionTitle({
     return (
         <div className="section-title">
             <h2>{title}</h2>
-            <button type="button" onClick={onAction}>
+            <button
+                type="button"
+                aria-label={`${action} ${title}`}
+                onClick={onAction}
+            >
                 {icon}
                 {action}
             </button>
@@ -948,9 +1128,6 @@ function Settings({
 }) {
     const preferences = state.preferences
     const [retentionOpen, setRetentionOpen] = useState(false)
-    const [applicationsOpen, setApplicationsOpen] = useState(false)
-    const [exclusionsOpen, setExclusionsOpen] = useState(false)
-    const [customExclusion, setCustomExclusion] = useState("")
     const [retention, setRetention] = useState(preferences.retention)
     const [checking, setChecking] = useState(false)
     const [repairing, setRepairing] = useState(false)
@@ -989,70 +1166,6 @@ function Settings({
             await requestNative<ApplicationState>("retention.set", retention),
         )
         setRetentionOpen(false)
-    }
-
-    const setApplicationEnabled = async (id: string, enabled: boolean) => {
-        try {
-            onState(
-                normalizeState(
-                    await requestNative<ApplicationState>(
-                        "application.setEnabled",
-                        { id, enabled },
-                    ),
-                ),
-            )
-            setSettingsError(undefined)
-        } catch (error) {
-            setSettingsError(message(error))
-        }
-    }
-
-    const setExclusionEnabled = async (id: string, enabled: boolean) => {
-        try {
-            onState(
-                normalizeState(
-                    await requestNative<ApplicationState>(
-                        "exclusion.setEnabled",
-                        { id, enabled },
-                    ),
-                ),
-            )
-            setSettingsError(undefined)
-        } catch (error) {
-            setSettingsError(message(error))
-        }
-    }
-
-    const addExclusion = async () => {
-        if (!customExclusion.trim()) return
-        try {
-            onState(
-                normalizeState(
-                    await requestNative<ApplicationState>("exclusion.add", {
-                        pattern: customExclusion,
-                    }),
-                ),
-            )
-            setCustomExclusion("")
-            setSettingsError(undefined)
-        } catch (error) {
-            setSettingsError(message(error))
-        }
-    }
-
-    const removeExclusion = async (id: string) => {
-        try {
-            onState(
-                normalizeState(
-                    await requestNative<ApplicationState>("exclusion.remove", {
-                        id,
-                    }),
-                ),
-            )
-            setSettingsError(undefined)
-        } catch (error) {
-            setSettingsError(message(error))
-        }
     }
 
     const checkRepository = async () => {
@@ -1243,153 +1356,6 @@ function Settings({
                     </div>
                 )}
             </div>
-            <h3>Backup content</h3>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() => setApplicationsOpen((open) => !open)}
-            >
-                <Archive size={17} />
-                <span>
-                    <strong>Applications</strong>
-                    <small>
-                        {state.applicationPresets.filter((app) => app.enabled)
-                            .length || "No"}{" "}
-                        selected
-                    </small>
-                </span>
-                <ChevronRight
-                    className={applicationsOpen ? "expanded" : ""}
-                    size={15}
-                />
-            </button>
-            {applicationsOpen && (
-                <div className="choice-editor">
-                    {state.applicationPresets.map((application) => (
-                        <label
-                            key={application.id}
-                            className={
-                                !application.available ? "unavailable" : ""
-                            }
-                        >
-                            <span>
-                                <strong>{application.name}</strong>
-                                <small title={application.paths.join("\n")}>
-                                    {application.available
-                                        ? application.paths
-                                              .map(compactPresetPath)
-                                              .join(", ")
-                                        : "Not installed"}
-                                </small>
-                            </span>
-                            <button
-                                type="button"
-                                className={`switch ${application.enabled ? "on" : ""}`}
-                                aria-label={`Back up ${application.name}`}
-                                disabled={!application.available}
-                                onClick={() =>
-                                    void setApplicationEnabled(
-                                        application.id,
-                                        !application.enabled,
-                                    )
-                                }
-                            >
-                                <span />
-                            </button>
-                        </label>
-                    ))}
-                </div>
-            )}
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() => setExclusionsOpen((open) => !open)}
-            >
-                <Folder size={17} />
-                <span>
-                    <strong>Excluded paths</strong>
-                    <small>
-                        {
-                            preferences.exclusions.filter(
-                                (rule) => rule.enabled,
-                            ).length
-                        }{" "}
-                        active rules
-                    </small>
-                </span>
-                <ChevronRight
-                    className={exclusionsOpen ? "expanded" : ""}
-                    size={15}
-                />
-            </button>
-            {exclusionsOpen && (
-                <div className="choice-editor exclusions-editor">
-                    <p>
-                        Matches are skipped in every selected folder. Built-in
-                        rules avoid reproducible dependencies, build output, and
-                        caches.
-                    </p>
-                    {preferences.exclusions.map((exclusion) => (
-                        <label key={exclusion.id}>
-                            <span>
-                                <strong className="pattern-label">
-                                    {exclusion.pattern}
-                                </strong>
-                                <small>
-                                    {exclusion.builtin ? "Built in" : "Custom"}
-                                </small>
-                            </span>
-                            {!exclusion.builtin && (
-                                <button
-                                    type="button"
-                                    className="row-action"
-                                    aria-label={`Remove ${exclusion.pattern}`}
-                                    onClick={() =>
-                                        void removeExclusion(exclusion.id)
-                                    }
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                className={`switch ${exclusion.enabled ? "on" : ""}`}
-                                aria-label={`Toggle ${exclusion.pattern}`}
-                                onClick={() =>
-                                    void setExclusionEnabled(
-                                        exclusion.id,
-                                        !exclusion.enabled,
-                                    )
-                                }
-                            >
-                                <span />
-                            </button>
-                        </label>
-                    ))}
-                    <form
-                        className="exclusion-form"
-                        onSubmit={(event) => {
-                            event.preventDefault()
-                            void addExclusion()
-                        }}
-                    >
-                        <input
-                            aria-label="Custom exclusion pattern"
-                            value={customExclusion}
-                            placeholder="**/.generated"
-                            onChange={(event) =>
-                                setCustomExclusion(event.target.value)
-                            }
-                        />
-                        <button
-                            type="submit"
-                            disabled={!customExclusion.trim()}
-                        >
-                            Add
-                        </button>
-                    </form>
-                </div>
-            )}
             <h3>Retention</h3>
             <button
                 type="button"

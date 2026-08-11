@@ -291,11 +291,6 @@ describe("Snapshotter app", () => {
     it("configures application presets and exclusion patterns", async () => {
         render(<App />)
         await screen.findByText("Documents")
-        fireEvent.click(
-            within(screen.getByRole("navigation")).getByRole("button", {
-                name: "Settings",
-            }),
-        )
 
         fireEvent.click(screen.getByRole("button", { name: /Applications/ }))
         fireEvent.click(screen.getByRole("button", { name: "Back up Firefox" }))
@@ -306,7 +301,7 @@ describe("Snapshotter app", () => {
             )
         })
 
-        fireEvent.click(screen.getByRole("button", { name: /Excluded paths/ }))
+        fireEvent.click(screen.getByRole("button", { name: /Exclusions/ }))
         fireEvent.change(screen.getByLabelText("Custom exclusion pattern"), {
             target: { value: "**/.generated" },
         })

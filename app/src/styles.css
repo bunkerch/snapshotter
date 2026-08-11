@@ -884,6 +884,25 @@ small {
     border-bottom: 1px solid var(--separator);
 }
 
+.selected-apps,
+.exclusion-summary {
+    overflow: hidden;
+    padding: 0 5px 7px;
+    color: var(--secondary);
+    font-size: 9.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-content .section-title {
+    margin-top: 4px;
+}
+
+.backup-content .form-error {
+    display: block;
+    padding: 5px;
+}
+
 .choice-editor > label {
     display: flex;
     min-height: 36px;
