@@ -12,6 +12,21 @@ export interface Source {
     excluded: boolean
 }
 
+export interface Exclusion {
+    id: string
+    pattern: string
+    enabled: boolean
+    builtin: boolean
+}
+
+export interface ApplicationPreset {
+    id: string
+    name: string
+    paths: string[]
+    enabled: boolean
+    available: boolean
+}
+
 export interface Schedule {
     enabled: boolean
     kind: "hourly" | "daily" | "weekly"
@@ -33,6 +48,8 @@ export interface Preferences {
     version: number
     repository?: Repository
     sources: Source[]
+    exclusions: Exclusion[]
+    selectedApps: string[]
     schedule: Schedule
     retention: RetentionPolicy
     launchAtLogin: boolean
@@ -58,6 +75,7 @@ export interface SnapshotEntry {
 
 export interface ApplicationState {
     preferences: Preferences
+    applicationPresets: ApplicationPreset[]
     snapshots: Snapshot[]
     status: "unconfigured" | "locked" | "ready"
 }

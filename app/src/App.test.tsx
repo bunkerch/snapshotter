@@ -34,6 +34,15 @@ const readyState: ApplicationState = {
                 excluded: false,
             },
         ],
+        exclusions: [
+            {
+                id: "node-modules",
+                pattern: "**/node_modules",
+                enabled: true,
+                builtin: true,
+            },
+        ],
+        selectedApps: [],
         schedule: {
             enabled: true,
             kind: "daily",
@@ -51,6 +60,17 @@ const readyState: ApplicationState = {
         },
         launchAtLogin: false,
     },
+    applicationPresets: [
+        {
+            id: "firefox",
+            name: "Firefox",
+            paths: [
+                "/Users/example/Library/Application Support/Firefox/Profiles",
+            ],
+            enabled: false,
+            available: true,
+        },
+    ],
     snapshots: [
         {
             id: "abcdef0123456789",
@@ -265,6 +285,36 @@ describe("Snapshotter app", () => {
             expect(
                 screen.getByRole("button", { name: /Repair index/ }),
             ).toBeTruthy()
+        })
+    })
+
+    it("configures application presets and exclusion patterns", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            within(screen.getByRole("navigation")).getByRole("button", {
+                name: "Settings",
+            }),
+        )
+
+        fireEvent.click(screen.getByRole("button", { name: /Applications/ }))
+        fireEvent.click(screen.getByRole("button", { name: "Back up Firefox" }))
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "application.setEnabled",
+                { id: "firefox", enabled: true },
+            )
+        })
+
+        fireEvent.click(screen.getByRole("button", { name: /Excluded paths/ }))
+        fireEvent.change(screen.getByLabelText("Custom exclusion pattern"), {
+            target: { value: "**/.generated" },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Add" }))
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("exclusion.add", {
+                pattern: "**/.generated",
+            })
         })
     })
 })

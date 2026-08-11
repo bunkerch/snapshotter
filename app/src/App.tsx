@@ -527,14 +527,18 @@ function Overview({
                     <p>
                         {latest
                             ? `Last backup ${formatRelative(latest.time)}`
-                            : `${state.preferences.sources.length} folders selected`}
+                            : `${state.preferences.sources.length + state.preferences.selectedApps.length} sources selected`}
                     </p>
                 </div>
                 <button
                     type="button"
                     className="primary-button"
                     onClick={onBackup}
-                    disabled={running || state.preferences.sources.length === 0}
+                    disabled={
+                        running ||
+                        (state.preferences.sources.length === 0 &&
+                            state.preferences.selectedApps.length === 0)
+                    }
                 >
                     <Play size={13} fill="currentColor" />
                     {running ? "Running" : "Back up"}
@@ -944,6 +948,9 @@ function Settings({
 }) {
     const preferences = state.preferences
     const [retentionOpen, setRetentionOpen] = useState(false)
+    const [applicationsOpen, setApplicationsOpen] = useState(false)
+    const [exclusionsOpen, setExclusionsOpen] = useState(false)
+    const [customExclusion, setCustomExclusion] = useState("")
     const [retention, setRetention] = useState(preferences.retention)
     const [checking, setChecking] = useState(false)
     const [repairing, setRepairing] = useState(false)
@@ -982,6 +989,70 @@ function Settings({
             await requestNative<ApplicationState>("retention.set", retention),
         )
         setRetentionOpen(false)
+    }
+
+    const setApplicationEnabled = async (id: string, enabled: boolean) => {
+        try {
+            onState(
+                normalizeState(
+                    await requestNative<ApplicationState>(
+                        "application.setEnabled",
+                        { id, enabled },
+                    ),
+                ),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
+    }
+
+    const setExclusionEnabled = async (id: string, enabled: boolean) => {
+        try {
+            onState(
+                normalizeState(
+                    await requestNative<ApplicationState>(
+                        "exclusion.setEnabled",
+                        { id, enabled },
+                    ),
+                ),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
+    }
+
+    const addExclusion = async () => {
+        if (!customExclusion.trim()) return
+        try {
+            onState(
+                normalizeState(
+                    await requestNative<ApplicationState>("exclusion.add", {
+                        pattern: customExclusion,
+                    }),
+                ),
+            )
+            setCustomExclusion("")
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
+    }
+
+    const removeExclusion = async (id: string) => {
+        try {
+            onState(
+                normalizeState(
+                    await requestNative<ApplicationState>("exclusion.remove", {
+                        id,
+                    }),
+                ),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
     }
 
     const checkRepository = async () => {
@@ -1172,6 +1243,151 @@ function Settings({
                     </div>
                 )}
             </div>
+            <h3>Backup content</h3>
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => setApplicationsOpen((open) => !open)}
+            >
+                <Archive size={17} />
+                <span>
+                    <strong>Applications</strong>
+                    <small>
+                        {state.applicationPresets.filter((app) => app.enabled)
+                            .length || "No"}{" "}
+                        selected
+                    </small>
+                </span>
+                <ChevronRight
+                    className={applicationsOpen ? "expanded" : ""}
+                    size={15}
+                />
+            </button>
+            {applicationsOpen && (
+                <div className="choice-editor">
+                    {state.applicationPresets.map((application) => (
+                        <label
+                            key={application.id}
+                            className={
+                                !application.available ? "unavailable" : ""
+                            }
+                        >
+                            <span>
+                                <strong>{application.name}</strong>
+                                <small title={application.paths.join("\n")}>
+                                    {application.available
+                                        ? `${application.paths.length} known location${application.paths.length === 1 ? "" : "s"}`
+                                        : "Not installed"}
+                                </small>
+                            </span>
+                            <button
+                                type="button"
+                                className={`switch ${application.enabled ? "on" : ""}`}
+                                aria-label={`Back up ${application.name}`}
+                                disabled={!application.available}
+                                onClick={() =>
+                                    void setApplicationEnabled(
+                                        application.id,
+                                        !application.enabled,
+                                    )
+                                }
+                            >
+                                <span />
+                            </button>
+                        </label>
+                    ))}
+                </div>
+            )}
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => setExclusionsOpen((open) => !open)}
+            >
+                <Folder size={17} />
+                <span>
+                    <strong>Excluded paths</strong>
+                    <small>
+                        {
+                            preferences.exclusions.filter(
+                                (rule) => rule.enabled,
+                            ).length
+                        }{" "}
+                        active rules
+                    </small>
+                </span>
+                <ChevronRight
+                    className={exclusionsOpen ? "expanded" : ""}
+                    size={15}
+                />
+            </button>
+            {exclusionsOpen && (
+                <div className="choice-editor exclusions-editor">
+                    <p>
+                        Matches are skipped in every selected folder. Built-in
+                        rules avoid reproducible dependencies, build output, and
+                        caches.
+                    </p>
+                    {preferences.exclusions.map((exclusion) => (
+                        <label key={exclusion.id}>
+                            <span>
+                                <strong className="pattern-label">
+                                    {exclusion.pattern}
+                                </strong>
+                                <small>
+                                    {exclusion.builtin ? "Built in" : "Custom"}
+                                </small>
+                            </span>
+                            {!exclusion.builtin && (
+                                <button
+                                    type="button"
+                                    className="row-action"
+                                    aria-label={`Remove ${exclusion.pattern}`}
+                                    onClick={() =>
+                                        void removeExclusion(exclusion.id)
+                                    }
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className={`switch ${exclusion.enabled ? "on" : ""}`}
+                                aria-label={`Toggle ${exclusion.pattern}`}
+                                onClick={() =>
+                                    void setExclusionEnabled(
+                                        exclusion.id,
+                                        !exclusion.enabled,
+                                    )
+                                }
+                            >
+                                <span />
+                            </button>
+                        </label>
+                    ))}
+                    <form
+                        className="exclusion-form"
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            void addExclusion()
+                        }}
+                    >
+                        <input
+                            aria-label="Custom exclusion pattern"
+                            value={customExclusion}
+                            placeholder="**/.generated"
+                            onChange={(event) =>
+                                setCustomExclusion(event.target.value)
+                            }
+                        />
+                        <button
+                            type="submit"
+                            disabled={!customExclusion.trim()}
+                        >
+                            Add
+                        </button>
+                    </form>
+                </div>
+            )}
             <h3>Retention</h3>
             <button
                 type="button"
@@ -1366,10 +1582,13 @@ const weekdays = [
 function normalizeState(state: ApplicationState): ApplicationState {
     return {
         ...state,
+        applicationPresets: state.applicationPresets ?? [],
         snapshots: state.snapshots ?? [],
         preferences: {
             ...state.preferences,
             sources: state.preferences.sources ?? [],
+            exclusions: state.preferences.exclusions ?? [],
+            selectedApps: state.preferences.selectedApps ?? [],
         },
     }
 }
