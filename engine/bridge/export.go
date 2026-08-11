@@ -9,12 +9,14 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
 var (
-	bridgeMu      sync.Mutex
-	bridgeRuntime *runtime
+	bridgeMu        sync.Mutex
+	bridgeRuntime   *runtime
+	progressRuntime atomic.Pointer[runtime]
 )
 
 //export SnapshotterOpen
@@ -22,7 +24,21 @@ func SnapshotterOpen(preferencesPath *C.char) *C.char {
 	bridgeMu.Lock()
 	defer bridgeMu.Unlock()
 	bridgeRuntime = newRuntime(C.GoString(preferencesPath))
+	progressRuntime.Store(bridgeRuntime)
 	return encodeResponse(response{OK: true})
+}
+
+//export SnapshotterProgress
+func SnapshotterProgress() *C.char {
+	runtime := progressRuntime.Load()
+	if runtime == nil {
+		return C.CString(`{"phase":"idle"}`)
+	}
+	encoded, err := json.Marshal(runtime.backupProgress())
+	if err != nil {
+		return C.CString(`{"phase":"error"}`)
+	}
+	return C.CString(string(encoded))
 }
 
 //export SnapshotterHandle
@@ -42,6 +58,7 @@ func SnapshotterClose() {
 	if bridgeRuntime != nil {
 		_ = bridgeRuntime.repository.Close()
 		bridgeRuntime = nil
+		progressRuntime.Store(nil)
 	}
 }
 

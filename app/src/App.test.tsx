@@ -1,4 +1,5 @@
 import {
+    act,
     cleanup,
     fireEvent,
     render,
@@ -11,9 +12,25 @@ import { App } from "./App"
 import { requestNative } from "./bridge"
 import type { ApplicationState } from "./model"
 
+const nativeProgress = vi.hoisted(() => ({
+    listener: undefined as
+        | ((progress: {
+              phase: string
+              filesDone?: number
+              bytesDone?: number
+          }) => void)
+        | undefined,
+}))
+
 vi.mock("./bridge", () => ({
     requestNative: vi.fn(),
     isPackagedHost: () => false,
+    subscribeToBackupProgress: (listener: typeof nativeProgress.listener) => {
+        nativeProgress.listener = listener
+        return () => {
+            nativeProgress.listener = undefined
+        }
+    },
 }))
 
 const readyState: ApplicationState = {
@@ -311,5 +328,21 @@ describe("Snapshotter app", () => {
                 pattern: "**/.generated",
             })
         })
+    })
+
+    it("shows real counters streamed by the native backup engine", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+
+        act(() => {
+            nativeProgress.listener?.({
+                phase: "backing-up",
+                filesDone: 42,
+                bytesDone: 2048,
+            })
+        })
+
+        expect(await screen.findByText("42 files · 2.0 KB")).toBeTruthy()
+        expect(screen.queryByText(/%/)).toBeNull()
     })
 })

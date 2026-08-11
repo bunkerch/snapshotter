@@ -79,3 +79,9 @@ export interface ApplicationState {
     snapshots: Snapshot[]
     status: "unconfigured" | "locked" | "ready"
 }
+
+export interface BackupProgress {
+    phase: "idle" | "backing-up" | "complete" | "error"
+    filesDone: number
+    bytesDone: number
+}

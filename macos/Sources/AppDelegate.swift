@@ -353,8 +353,10 @@ private struct BridgePayload: Decodable, Sendable {
 private final class Backend: @unchecked Sendable {
     static let shared = Backend()
     private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
+    private let progressQueue = DispatchQueue(label: "app.snapshotter.progress", qos: .utility)
     private let keychain = KeychainStore()
     private let engine: Result<EngineBridge, Error>
+    private let webViewReference = WebViewReference(nil)
     private var scheduleTimer: DispatchSourceTimer?
 
     private init() {
@@ -364,7 +366,11 @@ private final class Backend: @unchecked Sendable {
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             Self.setActivity(true)
-            defer { Self.setActivity(false) }
+            let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
+            defer {
+                progressTimer?.cancel()
+                Self.setActivity(false)
+            }
             _ = try? self.engine.get().handle(#"{"type":"schedule.tick"}"#)
         }
         timer.resume()
@@ -373,10 +379,17 @@ private final class Backend: @unchecked Sendable {
 
     func handle(_ rawRequest: String, requestID: String?, webView: WKWebView?) {
         let reference = WebViewReference(webView)
+        DispatchQueue.main.async {
+            self.webViewReference.webView = webView
+        }
         let showsActivity = Self.requestType(rawRequest).map { $0 == "backup.start" || $0 == "schedule.tick" } == true
         queue.async {
             if showsActivity { Self.setActivity(true) }
-            defer { if showsActivity { Self.setActivity(false) } }
+            let progressTimer = showsActivity ? self.startProgressUpdates(reference: reference) : nil
+            defer {
+                progressTimer?.cancel()
+                if showsActivity { Self.setActivity(false) }
+            }
             do {
                 let response = try self.engine.get().handle(rawRequest)
                 Self.respond(response, requestID: requestID, reference: reference)
@@ -384,6 +397,21 @@ private final class Backend: @unchecked Sendable {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
             }
         }
+    }
+
+    private func startProgressUpdates(reference: WebViewReference) -> DispatchSourceTimer? {
+        guard reference.webView != nil else { return nil }
+        let timer = DispatchSource.makeTimerSource(queue: progressQueue)
+        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(250), leeway: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            guard let self,
+                  let progress = try? self.engine.get().progress() else { return }
+            DispatchQueue.main.async {
+                reference.webView?.evaluateJavaScript("window.__snapshotterProgress?.(\(progress))")
+            }
+        }
+        timer.resume()
+        return timer
     }
 
     func refresh(requestID: String?, webView: WKWebView?) {

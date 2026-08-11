@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { isNativeHost, requestNative, sendNative } from "./bridge"
+import {
+    isNativeHost,
+    requestNative,
+    sendNative,
+    subscribeToBackupProgress,
+} from "./bridge"
 
 describe("native bridge", () => {
     afterEach(() => {
@@ -41,6 +46,24 @@ describe("native bridge", () => {
             }),
         )
         expect(isNativeHost()).toBe(true)
+    })
+
+    it("streams native backup counters", () => {
+        const listener = vi.fn()
+        const unsubscribe = subscribeToBackupProgress(listener)
+
+        window.__snapshotterProgress?.({
+            phase: "backing-up",
+            filesDone: 42,
+            bytesDone: 2048,
+        })
+
+        expect(listener).toHaveBeenCalledWith({
+            phase: "backing-up",
+            filesDone: 42,
+            bytesDone: 2048,
+        })
+        unsubscribe()
     })
 
     it("is safe in a regular browser", () => {

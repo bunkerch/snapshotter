@@ -4,6 +4,12 @@ interface NativeResponse<T> {
     error?: string
 }
 
+export interface NativeBackupProgress {
+    phase: string
+    filesDone?: number
+    bytesDone?: number
+}
+
 type PendingRequest = {
     resolve: (value: unknown) => void
     reject: (error: Error) => void
@@ -23,6 +29,22 @@ declare global {
             response: NativeResponse<unknown>,
         ) => void
         __snapshotterPackaged?: boolean
+        __snapshotterProgress?: (progress: NativeBackupProgress) => void
+    }
+}
+
+const progressListeners = new Set<(progress: NativeBackupProgress) => void>()
+
+window.__snapshotterProgress = (progress) => {
+    for (const listener of progressListeners) listener(progress)
+}
+
+export function subscribeToBackupProgress(
+    listener: (progress: NativeBackupProgress) => void,
+) {
+    progressListeners.add(listener)
+    return () => {
+        progressListeners.delete(listener)
     }
 }
 

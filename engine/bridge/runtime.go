@@ -22,9 +22,23 @@ import (
 
 type runtime struct {
 	mu          sync.Mutex
+	progressMu  sync.RWMutex
+	progress    service.Progress
 	store       *config.Store
 	repository  *resticadapter.Repository
 	coordinator service.Coordinator
+}
+
+func (r *runtime) backupProgress() service.Progress {
+	r.progressMu.RLock()
+	defer r.progressMu.RUnlock()
+	return r.progress
+}
+
+func (r *runtime) setBackupProgress(progress service.Progress) {
+	r.progressMu.Lock()
+	r.progress = progress
+	r.progressMu.Unlock()
 }
 
 type request struct {
@@ -620,12 +634,14 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 		return applicationState{}, err
 	}
 	defer done()
+	r.setBackupProgress(service.Progress{Phase: "backing-up"})
 	applicationSources, err := presetSources(preferences.SelectedApps)
 	if err != nil {
 		return applicationState{}, fmt.Errorf("resolve application sources: %w", err)
 	}
 	sources := append(append([]domain.Source{}, preferences.Sources...), applicationSources...)
-	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, nil); err != nil {
+	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, r.setBackupProgress); err != nil {
+		r.setBackupProgress(service.Progress{Phase: "error"})
 		return applicationState{}, err
 	}
 	if err := r.repository.Forget(operationContext, preferences.Retention); err != nil {

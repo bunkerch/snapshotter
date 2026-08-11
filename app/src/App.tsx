@@ -18,8 +18,17 @@ import {
     Wrench,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { isPackagedHost, requestNative } from "./bridge"
-import type { ApplicationState, Snapshot, SnapshotEntry } from "./model"
+import {
+    isPackagedHost,
+    requestNative,
+    subscribeToBackupProgress,
+} from "./bridge"
+import type {
+    ApplicationState,
+    BackupProgress,
+    Snapshot,
+    SnapshotEntry,
+} from "./model"
 
 type View = "overview" | "snapshots" | "settings"
 
@@ -28,6 +37,7 @@ export function App() {
     const [state, setState] = useState<ApplicationState>()
     const [error, setError] = useState<string>()
     const [running, setRunning] = useState(false)
+    const [backupProgress, setBackupProgress] = useState<BackupProgress>()
 
     const refresh = useCallback(async () => {
         try {
@@ -46,8 +56,28 @@ export function App() {
         void refresh()
     }, [refresh])
 
+    useEffect(
+        () =>
+            subscribeToBackupProgress((progress) => {
+                if (progress.phase === "backing-up") setRunning(true)
+                if (
+                    progress.phase === "complete" ||
+                    progress.phase === "error"
+                ) {
+                    setRunning(false)
+                }
+                setBackupProgress({
+                    phase: progress.phase as BackupProgress["phase"],
+                    filesDone: progress.filesDone ?? 0,
+                    bytesDone: progress.bytesDone ?? 0,
+                })
+            }),
+        [],
+    )
+
     const backupNow = async () => {
         setRunning(true)
+        setBackupProgress({ phase: "backing-up", filesDone: 0, bytesDone: 0 })
         try {
             setState(
                 normalizeState(
@@ -59,6 +89,7 @@ export function App() {
             setError(message(requestError))
         } finally {
             setRunning(false)
+            setBackupProgress(undefined)
         }
     }
 
@@ -110,6 +141,7 @@ export function App() {
                     <Overview
                         state={state}
                         running={running}
+                        progress={backupProgress}
                         onBackup={backupNow}
                         onAddSources={addSources}
                         onAddSourcePath={addSourcePath}
@@ -454,6 +486,7 @@ function Locked({
 function Overview({
     state,
     running,
+    progress,
     onBackup,
     onAddSources,
     onAddSourcePath,
@@ -462,6 +495,7 @@ function Overview({
 }: {
     state: ApplicationState
     running: boolean
+    progress?: BackupProgress
     onBackup: () => void
     onAddSources: () => Promise<void>
     onAddSourcePath: (path: string) => Promise<void>
@@ -525,9 +559,11 @@ function Overview({
                               : "Ready for first backup"}
                     </h1>
                     <p>
-                        {latest
-                            ? `Last backup ${formatRelative(latest.time)}`
-                            : `${state.preferences.sources.length + state.preferences.selectedApps.length} sources selected`}
+                        {running && progress && progress.filesDone > 0
+                            ? `${formatCount(progress.filesDone)} files · ${formatBytes(progress.bytesDone)}`
+                            : latest
+                              ? `Last backup ${formatRelative(latest.time)}`
+                              : `${state.preferences.sources.length + state.preferences.selectedApps.length} sources selected`}
                     </p>
                 </div>
                 <button

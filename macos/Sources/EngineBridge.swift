@@ -21,11 +21,13 @@ enum EngineBridgeError: LocalizedError {
 final class EngineBridge: @unchecked Sendable {
     private typealias OpenFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias HandleFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    private typealias ProgressFunction = @convention(c) () -> UnsafeMutablePointer<CChar>?
     private typealias CloseFunction = @convention(c) () -> Void
     private typealias FreeFunction = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
     private let library: UnsafeMutableRawPointer
     private let handleRequest: HandleFunction
+    private let readProgress: ProgressFunction
     private let closeEngine: CloseFunction
     private let freeResponse: FreeFunction
 
@@ -38,6 +40,7 @@ final class EngineBridge: @unchecked Sendable {
 
         let openEngine: OpenFunction = try Self.loadSymbol("SnapshotterOpen", from: library)
         handleRequest = try Self.loadSymbol("SnapshotterHandle", from: library)
+        readProgress = try Self.loadSymbol("SnapshotterProgress", from: library)
         closeEngine = try Self.loadSymbol("SnapshotterClose", from: library)
         freeResponse = try Self.loadSymbol("SnapshotterFree", from: library)
 
@@ -59,6 +62,10 @@ final class EngineBridge: @unchecked Sendable {
 
     func handle(_ request: String) throws -> String {
         try consume(request.withCString { handleRequest($0) })
+    }
+
+    func progress() throws -> String {
+        try consume(readProgress())
     }
 
     private func consume(_ pointer: UnsafeMutablePointer<CChar>?) throws -> String {
