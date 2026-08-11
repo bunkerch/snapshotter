@@ -17,6 +17,8 @@ cp "$ROOT/macos/.build/release/Snapshotter" "$CONTENTS/MacOS/Snapshotter"
 cp "$ROOT/engine/build/libsnapshotter.dylib" "$CONTENTS/Frameworks/libsnapshotter.dylib"
 cp "$ROOT/macos/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp -R "$ROOT/dist/". "$CONTENTS/Resources/Web/"
+test "$(find "$CONTENTS/Resources/Web" -type f | wc -l | tr -d ' ')" = "1"
+test -f "$CONTENTS/Resources/Web/index.html"
 
 ICON_PNG="$ROOT/build/Snapshotter-1024.png"
 ICONSET="$ROOT/build/Snapshotter.iconset"

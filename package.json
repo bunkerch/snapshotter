@@ -31,6 +31,7 @@
         "jsdom": "latest",
         "lint-staged": "^17.0.8",
         "typescript": "latest",
+        "vite-plugin-singlefile": "^2.3.3",
         "vitest": "latest"
     },
     "packageManager": "pnpm@10.12.1"
