@@ -1276,7 +1276,9 @@ function Settings({
                                 <strong>{application.name}</strong>
                                 <small title={application.paths.join("\n")}>
                                     {application.available
-                                        ? `${application.paths.length} known location${application.paths.length === 1 ? "" : "s"}`
+                                        ? application.paths
+                                              .map(compactPresetPath)
+                                              .join(", ")
                                         : "Not installed"}
                                 </small>
                             </span>
@@ -1558,6 +1560,9 @@ function formatBytes(value: number) {
         units.length - 1,
     )
     return `${(value / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
+}
+function compactPresetPath(path: string) {
+    return path.split("/").filter(Boolean).slice(-2).join("/")
 }
 function scheduleLabel(state: ApplicationState) {
     const schedule = state.preferences.schedule
