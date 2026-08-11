@@ -54,6 +54,12 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourcePath, "hello.txt"), []byte("hello from restic app"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(sourcePath, "node_modules", "package"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourcePath, "node_modules", "package", "index.js"), []byte("downloadable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	configured := domain.Repository{
 		ID:       "test",
@@ -72,7 +78,7 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 		ID:      "source",
 		Path:    sourcePath,
 		Enabled: true,
-	}}, func(update service.Progress) {
+	}}, []domain.Exclusion{{ID: "node-modules", Pattern: "**/node_modules", Enabled: true}}, func(update service.Progress) {
 		progress = append(progress, update)
 	})
 	if err != nil {
@@ -131,7 +137,7 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourcePath, "hello.txt"), []byte("updated content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil); err != nil {
+	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := adapter.Forget(context.Background(), domain.RetentionPolicy{Daily: 1}); err != nil {

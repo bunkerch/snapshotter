@@ -28,6 +28,26 @@ func Validate(preferences domain.Preferences) error {
 			return errors.New("source path is required")
 		}
 	}
+	seenExclusions := make(map[string]bool, len(preferences.Exclusions))
+	for _, exclusion := range preferences.Exclusions {
+		if strings.TrimSpace(exclusion.ID) == "" || strings.TrimSpace(exclusion.Pattern) == "" {
+			return errors.New("exclusion identifier and pattern are required")
+		}
+		if seenExclusions[exclusion.ID] {
+			return fmt.Errorf("duplicate exclusion %q", exclusion.ID)
+		}
+		seenExclusions[exclusion.ID] = true
+	}
+	seenApps := make(map[string]bool, len(preferences.SelectedApps))
+	for _, appID := range preferences.SelectedApps {
+		if strings.TrimSpace(appID) == "" {
+			return errors.New("application preset identifier is required")
+		}
+		if seenApps[appID] {
+			return fmt.Errorf("duplicate application preset %q", appID)
+		}
+		seenApps[appID] = true
+	}
 	return nil
 }
 

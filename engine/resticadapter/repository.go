@@ -22,6 +22,7 @@ import (
 	"github.com/restic/restic/internal/backend/s3"
 	"github.com/restic/restic/internal/backend/sftp"
 	"github.com/restic/restic/internal/data"
+	"github.com/restic/restic/internal/filter"
 	"github.com/restic/restic/internal/fs"
 	"github.com/restic/restic/internal/options"
 	"github.com/restic/restic/internal/repository"
@@ -159,7 +160,7 @@ func (r *Repository) ID() (string, bool) {
 	return r.repo.Config().ID, true
 }
 
-func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink service.ProgressSink) (domain.Snapshot, error) {
+func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclusions []domain.Exclusion, sink service.ProgressSink) (domain.Snapshot, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.repo == nil {
@@ -185,12 +186,25 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, sink s
 	}
 	started := time.Now()
 	progress := service.Progress{Phase: "backing-up"}
+	var progressMu sync.Mutex
 	backup := archiver.New(r.repo, fs.Local{}, archiver.Options{})
+	patterns := make([]string, 0, len(exclusions))
+	for _, exclusion := range exclusions {
+		if exclusion.Enabled {
+			patterns = append(patterns, exclusion.Pattern)
+		}
+	}
+	if len(patterns) > 0 {
+		reject := filter.RejectByPattern(patterns, func(string, ...interface{}) {})
+		backup.SelectByName = archiver.CombineRejectByNames([]archiver.RejectByNameFunc{archiver.RejectByNameFunc(reject)})
+	}
 	backup.Error = func(_ string, itemErr error) error { return itemErr }
 	backup.CompleteItem = func(_ string, _, current *data.Node, _ archiver.ItemStats, _ time.Duration) {
 		if current == nil {
 			return
 		}
+		progressMu.Lock()
+		defer progressMu.Unlock()
 		progress.FilesDone++
 		progress.BytesDone += current.Size
 		emitProgress(sink, progress)

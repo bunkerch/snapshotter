@@ -25,6 +25,37 @@ func TestStateCollectionsEncodeAsArrays(t *testing.T) {
 	}
 }
 
+func TestExclusionsAndApplicationPresetsPersist(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	initial := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))
+	if !initial.OK {
+		t.Fatal(initial.Error)
+	}
+	state := initial.Data.(applicationState)
+	if len(state.Preferences.Exclusions) == 0 || len(state.ApplicationPresets) == 0 {
+		t.Fatalf("missing built-in backup choices: %#v", state)
+	}
+
+	added := runtime.handle(context.Background(), []byte(`{"type":"exclusion.add","payload":{"pattern":"**/.generated"}}`))
+	if !added.OK {
+		t.Fatal(added.Error)
+	}
+	state = added.Data.(applicationState)
+	custom := state.Preferences.Exclusions[len(state.Preferences.Exclusions)-1]
+	if custom.Pattern != "**/.generated" || !custom.Enabled || custom.Builtin {
+		t.Fatalf("unexpected custom exclusion: %#v", custom)
+	}
+
+	selected := runtime.handle(context.Background(), []byte(`{"type":"application.setEnabled","payload":{"id":"firefox","enabled":true}}`))
+	if !selected.OK {
+		t.Fatal(selected.Error)
+	}
+	state = selected.Data.(applicationState)
+	if len(state.Preferences.SelectedApps) != 1 || state.Preferences.SelectedApps[0] != "firefox" {
+		t.Fatalf("application selection was not persisted: %#v", state.Preferences.SelectedApps)
+	}
+}
+
 func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
 	initial := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))

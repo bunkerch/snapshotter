@@ -50,7 +50,7 @@ func TestLiveRemoteRepository(t *testing.T) {
 		t.Fatalf("reopened repository ID %q does not match %q", reopenedID, repositoryID)
 	}
 	defer adapter.Close()
-	snapshot, err := adapter.Backup(context.Background(), []domain.Source{{ID: "live", Path: source, Enabled: true}}, nil)
+	snapshot, err := adapter.Backup(context.Background(), []domain.Source{{ID: "live", Path: source, Enabled: true}}, nil, nil)
 	if err != nil {
 		t.Fatalf("backup to live repository: %v", err)
 	}

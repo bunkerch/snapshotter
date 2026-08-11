@@ -33,6 +33,21 @@ type Source struct {
 	Excluded bool   `json:"excluded"`
 }
 
+type Exclusion struct {
+	ID      string `json:"id"`
+	Pattern string `json:"pattern"`
+	Enabled bool   `json:"enabled"`
+	Builtin bool   `json:"builtin"`
+}
+
+type ApplicationPreset struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Paths     []string `json:"paths"`
+	Enabled   bool     `json:"enabled"`
+	Available bool     `json:"available"`
+}
+
 type RetentionPolicy struct {
 	Hourly  int `json:"hourly"`
 	Daily   int `json:"daily"`
@@ -62,6 +77,8 @@ type Preferences struct {
 	Version       int             `json:"version"`
 	Repository    *Repository     `json:"repository,omitempty"`
 	Sources       []Source        `json:"sources"`
+	Exclusions    []Exclusion     `json:"exclusions"`
+	SelectedApps  []string        `json:"selectedApps"`
 	Schedule      Schedule        `json:"schedule"`
 	Retention     RetentionPolicy `json:"retention"`
 	LaunchAtLogin bool            `json:"launchAtLogin"`
@@ -71,6 +88,21 @@ func DefaultPreferences() Preferences {
 	return Preferences{
 		Version: 1,
 		Sources: []Source{},
+		Exclusions: []Exclusion{
+			{ID: "node-modules", Pattern: "**/node_modules", Enabled: true, Builtin: true},
+			{ID: "rust-target", Pattern: "**/target", Enabled: true, Builtin: true},
+			{ID: "python-venv", Pattern: "**/.venv", Enabled: true, Builtin: true},
+			{ID: "python-venv-named", Pattern: "**/venv", Enabled: true, Builtin: true},
+			{ID: "build-output", Pattern: "**/build", Enabled: true, Builtin: true},
+			{ID: "dist-output", Pattern: "**/dist", Enabled: true, Builtin: true},
+			{ID: "cache", Pattern: "**/Cache", Enabled: true, Builtin: true},
+			{ID: "code-cache", Pattern: "**/Code Cache", Enabled: true, Builtin: true},
+			{ID: "cache-storage", Pattern: "**/CacheStorage", Enabled: true, Builtin: true},
+			{ID: "gpu-cache", Pattern: "**/GPUCache", Enabled: true, Builtin: true},
+			{ID: "python-cache", Pattern: "**/__pycache__", Enabled: true, Builtin: true},
+			{ID: "macos-trash", Pattern: "**/.Trash", Enabled: true, Builtin: true},
+		},
+		SelectedApps: []string{},
 		Schedule: Schedule{
 			Enabled:  true,
 			Kind:     ScheduleDaily,

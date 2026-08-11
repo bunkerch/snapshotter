@@ -28,6 +28,7 @@ require (
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/restic/chunker v0.4.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tinylib/msgp v1.6.1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

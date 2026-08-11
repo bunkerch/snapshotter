@@ -12,7 +12,7 @@ import (
 type Engine interface {
 	Initialize(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
 	Unlock(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
-	Backup(context.Context, []domain.Source, ProgressSink) (domain.Snapshot, error)
+	Backup(context.Context, []domain.Source, []domain.Exclusion, ProgressSink) (domain.Snapshot, error)
 	Snapshots(context.Context) ([]domain.Snapshot, error)
 	List(context.Context, string, string) ([]domain.Entry, error)
 	Dump(context.Context, string, string, io.Writer) error
