@@ -17,7 +17,7 @@ var presetDefinitions = []presetDefinition{
 	{id: "firefox", name: "Firefox", paths: []string{"Library/Application Support/Firefox/Profiles", "Library/Application Support/Firefox/installs.ini", "Library/Application Support/Firefox/profiles.ini"}},
 	{id: "thunderbird", name: "Thunderbird", paths: []string{"Library/Thunderbird/Profiles", "Library/Thunderbird/installs.ini", "Library/Thunderbird/profiles.ini"}},
 	{id: "ghostty", name: "Ghostty", paths: []string{"Library/Application Support/com.mitchellh.ghostty/config", ".config/ghostty"}},
-	{id: "opencode", name: "OpenCode", paths: []string{".config/opencode", ".local/share/opencode"}},
+	{id: "opencode", name: "OpenCode", paths: []string{".config/opencode", ".local/share/opencode", ".local/state/opencode"}},
 	{id: "vscode", name: "Visual Studio Code", paths: []string{"Library/Application Support/Code/User", ".vscode/extensions"}},
 	{id: "minecraft", name: "Minecraft saves", paths: []string{"Library/Application Support/minecraft/saves"}},
 	{id: "chrome", name: "Google Chrome", paths: []string{"Library/Application Support/Google/Chrome"}},
