@@ -4,7 +4,7 @@ A native macOS menu bar backup manager powered by restic.
 
 Snapshotter supports local folders, S3-compatible object storage, SFTP, and
 rest-server destinations. Repository encryption passwords and remote service
-credentials are stored in macOS Keychain. SFTP uses the system SSH agent,
+credentials can be stored in macOS Keychain or a synced 1Password vault. SFTP uses the system SSH agent,
 configuration, and keys.
 
 ## Project layout
@@ -117,5 +117,21 @@ NOTARY_PROFILE="snapshotter-notary" make dmg
 ## Architecture
 
 The app never shells out to the restic executable. The Go engine is linked into the
-native application and exposes a small asynchronous API. Credentials are stored in
-the macOS Keychain by the native layer and are never persisted in the UI state.
+native application and exposes a small asynchronous API. Credentials are never
+persisted in UI state. Keychain storage is handled by the native layer; optional
+1Password storage uses the official Go SDK and the 1Password desktop app.
+
+To use 1Password storage, install and sign in to 1Password for Mac, then enable
+**Settings > Developer > Integrate with other apps**. Enable Touch ID under
+**Settings > Security** to authorize Snapshotter with biometrics. During repository
+setup, select 1Password, enter the account name shown in the app, authorize access,
+and choose a vault. Snapshotter stores only the account, vault ID, and item ID in its
+preferences. The repository password and remote-backend credentials remain in the
+synced 1Password item. On another Mac, choose **Open existing**, select the same
+vault, and use the synced Snapshotter item instead of entering the secrets again.
+Disconnecting a repository leaves its synced item in 1Password so other devices do
+not lose access; remove that item manually when it is no longer needed anywhere.
+
+The official SDK loads 1Password's signed IPC client library from the desktop app.
+Because that library is signed by 1Password rather than Snapshotter, packaged builds
+use the hardened-runtime library-validation exception required for this integration.

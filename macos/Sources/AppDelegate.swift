@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.open.choose": chooseRepository(request: request, create: false, webView: message.webView)
         case "repository.create.remote": configureRemoteRepository(request: request, create: true, webView: message.webView)
         case "repository.open.remote": configureRemoteRepository(request: request, create: false, webView: message.webView)
-        case "repository.unlock": unlockRepository(request: request, webView: message.webView)
+        case "repository.unlock": unlockRepository(request: request, raw: raw, webView: message.webView)
         case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
@@ -219,7 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     private func chooseRepository(request: BridgeRequest, create: Bool, webView: WKWebView?) {
         guard let name = request.payload?.name, !name.isEmpty,
-              let password = request.payload?.password, !password.isEmpty else {
+              let password = request.payload?.password,
+              !password.isEmpty || request.payload?.secretStorage?.itemID?.isEmpty == false else {
             Backend.shared.fail("A name and password are required", requestID: request.id, webView: webView)
             return
         }
@@ -243,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 location: destination.path,
                 password: password,
                 credentials: [:],
+                secretStorage: request.payload?.secretStorage,
                 create: create,
                 requestID: request.id,
                 webView: webView
@@ -255,7 +257,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         guard let name = request.payload?.name, !name.isEmpty,
               let kind = request.payload?.kind, ["s3", "sftp", "rest"].contains(kind),
               let location = request.payload?.location, !location.isEmpty,
-              let password = request.payload?.password, !password.isEmpty else {
+              let password = request.payload?.password,
+              !password.isEmpty || request.payload?.secretStorage?.itemID?.isEmpty == false else {
             Backend.shared.fail("Name, destination, and encryption password are required", requestID: request.id, webView: webView)
             return
         }
@@ -265,18 +268,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             location: location,
             password: password,
             credentials: request.payload?.credentials ?? [:],
+            secretStorage: request.payload?.secretStorage,
             create: create,
             requestID: request.id,
             webView: webView
         )
     }
 
-    private func unlockRepository(request: BridgeRequest, webView: WKWebView?) {
+    private func unlockRepository(request: BridgeRequest, raw: String, webView: WKWebView?) {
         guard let repositoryID = request.payload?.repositoryID else {
             Backend.shared.fail("Repository identifier is missing", requestID: request.id, webView: webView)
             return
         }
-        Backend.shared.unlockRepository(repositoryID: repositoryID, requestID: request.id, webView: webView)
+        if request.payload?.secretStorage?.provider == "onepassword" {
+            Backend.shared.handle(raw, requestID: request.id, webView: webView)
+        } else {
+            Backend.shared.unlockRepository(repositoryID: repositoryID, requestID: request.id, webView: webView)
+        }
     }
 
     private func disconnectRepository(request: BridgeRequest, raw: String, webView: WKWebView?) {
@@ -284,7 +292,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             Backend.shared.fail("Repository identifier is missing", requestID: request.id, webView: webView)
             return
         }
-        Backend.shared.disconnectRepository(repositoryID: repositoryID, request: raw, requestID: request.id, webView: webView)
+        if request.payload?.secretStorage?.provider == "onepassword" {
+            Backend.shared.handle(raw, requestID: request.id, webView: webView)
+        } else {
+            Backend.shared.disconnectRepository(repositoryID: repositoryID, request: raw, requestID: request.id, webView: webView)
+        }
     }
 
     private func setLaunchAtLogin(enabled: Bool, request: String, requestID: String?, webView: WKWebView?) {
@@ -358,6 +370,22 @@ private struct BridgePayload: Decodable, Sendable {
     let kind: String?
     let location: String?
     let credentials: [String: String]?
+    let secretStorage: SecretStoragePayload?
+}
+
+private struct SecretStoragePayload: Decodable, Sendable {
+    let provider: String
+    let account: String?
+    let vaultID: String?
+    let itemID: String?
+
+    var dictionary: [String: String] {
+        var value = ["provider": provider]
+        if let account { value["account"] = account }
+        if let vaultID { value["vaultID"] = vaultID }
+        if let itemID { value["itemID"] = itemID }
+        return value
+    }
 }
 
 private final class Backend: @unchecked Sendable {
@@ -435,12 +463,16 @@ private final class Backend: @unchecked Sendable {
         handle(request, requestID: requestID, webView: webView)
     }
 
-    func createRepository(name: String, kind: String, location: String, password: String, credentials: [String: String], create: Bool, requestID: String?, webView: WKWebView?) {
+    func createRepository(name: String, kind: String, location: String, password: String, credentials: [String: String], secretStorage: SecretStoragePayload?, create: Bool, requestID: String?, webView: WKWebView?) {
         let repositoryID = UUID().uuidString.lowercased()
+        var repository: [String: Any] = ["id": repositoryID, "name": name, "kind": kind, "location": location]
+        if let secretStorage {
+            repository["secretStorage"] = secretStorage.dictionary
+        }
         let payload: [String: Any] = [
             "type": create ? "repository.create" : "repository.connect",
             "payload": [
-                "repository": ["id": repositoryID, "name": name, "kind": kind, "location": location],
+                "repository": repository,
                 "credentials": credentials,
                 "password": password,
             ],
@@ -452,12 +484,14 @@ private final class Backend: @unchecked Sendable {
             do {
                 let response = try self.engine.get().handle(request)
                 if Self.isSuccessful(response) {
-                    try self.keychain.savePassword(password, repositoryID: repositoryID)
-                    let credentialsData = try JSONSerialization.data(withJSONObject: credentials)
-                    guard let encodedCredentials = String(data: credentialsData, encoding: .utf8) else {
-                        throw EngineBridgeError.invalidResponse
+                    if secretStorage == nil {
+                        try self.keychain.savePassword(password, repositoryID: repositoryID)
+                        let credentialsData = try JSONSerialization.data(withJSONObject: credentials)
+                        guard let encodedCredentials = String(data: credentialsData, encoding: .utf8) else {
+                            throw EngineBridgeError.invalidResponse
+                        }
+                        try self.keychain.saveCredentials(encodedCredentials, repositoryID: repositoryID)
                     }
-                    try self.keychain.saveCredentials(encodedCredentials, repositoryID: repositoryID)
                 }
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {

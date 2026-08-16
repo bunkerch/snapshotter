@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - `app/` contains the React and TypeScript interface, including colocated tests in `app/src/`.
-- `macos/` is a Swift Package containing the native `NSStatusItem`, popover, WKWebView host, Keychain access, and macOS lifecycle integration.
+- `macos/` is a Swift Package containing the native `NSStatusItem`, popover, WKWebView host, Keychain access, and macOS lifecycle integration. The Go engine integrates with 1Password.
 - `engine/` is the Go module. Domain types are in `domain/`, persistence in `config/`, scheduling in `schedule/`, application contracts in `service/`, and embedded restic code in `resticadapter/`.
 - `docs/architecture/` records important design decisions.
 - `dist/` and `.build/` are generated outputs and must not be committed.
@@ -39,4 +39,4 @@ Use short Conventional Commit subjects matching history, such as `feat: list emb
 
 ## Security & Architecture
 
-Never persist repository passwords outside macOS Keychain or log secrets. Do not invoke the restic CLI. Restic is pinned and embedded as a Go module; keep its internal types contained within `engine/resticadapter/`. Review `docs/architecture/restic-embedding.md` before changing the module path or dependency version.
+Persist repository passwords only in macOS Keychain or a user-selected 1Password vault, and never log secrets. Do not invoke the restic CLI. Restic is pinned and embedded as a Go module; keep its internal types contained within `engine/resticadapter/`. Review `docs/architecture/restic-embedding.md` before changing the module path or dependency version.

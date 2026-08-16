@@ -3,6 +3,14 @@ export interface Repository {
     name: string
     kind: "local" | "sftp" | "s3" | "rest"
     location: string
+    secretStorage?: SecretStorage
+}
+
+export interface SecretStorage {
+    provider: "onepassword"
+    account: string
+    vaultID: string
+    itemID?: string
 }
 
 export interface Source {

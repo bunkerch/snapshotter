@@ -241,8 +241,69 @@ function Setup({
     const [accessKey, setAccessKey] = useState("")
     const [secretKey, setSecretKey] = useState("")
     const [region, setRegion] = useState("")
+    const [secretProvider, setSecretProvider] = useState<
+        "keychain" | "onepassword"
+    >("keychain")
+    const [onePasswordAccount, setOnePasswordAccount] = useState("")
+    const [onePasswordVaultID, setOnePasswordVaultID] = useState("")
+    const [onePasswordVaults, setOnePasswordVaults] = useState<
+        { id: string; title: string }[]
+    >([])
+    const [onePasswordItems, setOnePasswordItems] = useState<
+        { id: string; title: string }[]
+    >([])
+    const [onePasswordItemID, setOnePasswordItemID] = useState("")
+    const [loadingVaults, setLoadingVaults] = useState(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
+
+    const loadOnePasswordVaults = async () => {
+        setLoadingVaults(true)
+        try {
+            const vaults = await requestNative<{ id: string; title: string }[]>(
+                "onepassword.vaults",
+                { account: onePasswordAccount },
+            )
+            setOnePasswordVaults(vaults)
+            setOnePasswordVaultID(vaults[0]?.id ?? "")
+            setOnePasswordItems([])
+            setOnePasswordItemID("")
+            setError(undefined)
+        } catch (requestError) {
+            setError(message(requestError))
+        } finally {
+            setLoadingVaults(false)
+        }
+    }
+
+    const loadOnePasswordItems = async () => {
+        setLoadingVaults(true)
+        try {
+            const items = await requestNative<{ id: string; title: string }[]>(
+                "onepassword.items",
+                {
+                    account: onePasswordAccount,
+                    vaultID: onePasswordVaultID,
+                },
+            )
+            setOnePasswordItems(items)
+            setOnePasswordItemID(items[0]?.id ?? "")
+            setError(
+                items.length === 0
+                    ? "No Snapshotter items were found in this vault."
+                    : undefined,
+            )
+        } catch (requestError) {
+            setError(message(requestError))
+        } finally {
+            setLoadingVaults(false)
+        }
+    }
+
+    const usesExistingOnePasswordItem =
+        secretProvider === "onepassword" &&
+        repositoryMode === "open" &&
+        onePasswordItemID !== ""
 
     const create = async () => {
         setBusy(true)
@@ -268,6 +329,18 @@ function Setup({
                             secretKey,
                             region,
                         },
+                        secretStorage:
+                            secretProvider === "onepassword"
+                                ? {
+                                      provider: "onepassword",
+                                      account: onePasswordAccount,
+                                      vaultID: onePasswordVaultID,
+                                      itemID:
+                                          repositoryMode === "open"
+                                              ? onePasswordItemID || undefined
+                                              : undefined,
+                                  }
+                                : undefined,
                     },
                 ),
             )
@@ -285,6 +358,110 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
+            <fieldset className="repository-mode" aria-label="Secret storage">
+                <button
+                    type="button"
+                    className={secretProvider === "keychain" ? "selected" : ""}
+                    onClick={() => setSecretProvider("keychain")}
+                >
+                    Keychain
+                </button>
+                <button
+                    type="button"
+                    className={
+                        secretProvider === "onepassword" ? "selected" : ""
+                    }
+                    onClick={() => setSecretProvider("onepassword")}
+                >
+                    1Password
+                </button>
+            </fieldset>
+            {secretProvider === "onepassword" && (
+                <div className="onepassword-storage">
+                    <label>
+                        1Password account
+                        <input
+                            value={onePasswordAccount}
+                            placeholder="Account name or ID"
+                            onChange={(event) => {
+                                setOnePasswordAccount(event.target.value)
+                                setOnePasswordVaults([])
+                                setOnePasswordVaultID("")
+                                setOnePasswordItems([])
+                                setOnePasswordItemID("")
+                            }}
+                            spellCheck={false}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={!onePasswordAccount.trim() || loadingVaults}
+                        onClick={() => void loadOnePasswordVaults()}
+                    >
+                        {loadingVaults ? "Authorizing…" : "Choose vault…"}
+                    </button>
+                    {onePasswordVaults.length > 0 && (
+                        <label>
+                            Vault
+                            <select
+                                value={onePasswordVaultID}
+                                onChange={(event) => {
+                                    setOnePasswordVaultID(event.target.value)
+                                    setOnePasswordItems([])
+                                    setOnePasswordItemID("")
+                                }}
+                            >
+                                {onePasswordVaults.map((vault) => (
+                                    <option key={vault.id} value={vault.id}>
+                                        {vault.title}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    {repositoryMode === "open" && onePasswordVaultID && (
+                        <>
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={loadingVaults}
+                                onClick={() => void loadOnePasswordItems()}
+                            >
+                                {loadingVaults
+                                    ? "Loading…"
+                                    : "Use synced secrets…"}
+                            </button>
+                            {onePasswordItems.length > 0 && (
+                                <label>
+                                    Snapshotter item
+                                    <select
+                                        value={onePasswordItemID}
+                                        onChange={(event) =>
+                                            setOnePasswordItemID(
+                                                event.target.value,
+                                            )
+                                        }
+                                    >
+                                        {onePasswordItems.map((item) => (
+                                            <option
+                                                key={item.id}
+                                                value={item.id}
+                                            >
+                                                {item.title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                        </>
+                    )}
+                    <small className="setup-hint">
+                        Requires the 1Password desktop app. Authorization uses
+                        Touch ID when enabled in 1Password.
+                    </small>
+                </div>
+            )}
             <fieldset
                 className="repository-mode"
                 aria-label="Repository action"
@@ -327,7 +504,8 @@ function Setup({
                 />
             </label>
             <label>
-                Password
+                Password{" "}
+                {usesExistingOnePasswordItem && <small>From 1Password</small>}
                 <input
                     type="password"
                     value={password}
@@ -414,8 +592,10 @@ function Setup({
                 className="primary-button setup-button"
                 disabled={
                     !name ||
-                    !password ||
+                    (!password && !usesExistingOnePasswordItem) ||
                     busy ||
+                    (secretProvider === "onepassword" &&
+                        (!onePasswordAccount.trim() || !onePasswordVaultID)) ||
                     (kind !== "local" && !location)
                 }
                 onClick={create}
@@ -451,6 +631,7 @@ function Locked({
             onComplete(
                 await requestNative<ApplicationState>("repository.unlock", {
                     repositoryID: state.preferences.repository?.id,
+                    secretStorage: state.preferences.repository?.secretStorage,
                 }),
             )
         } catch (requestError) {
@@ -1239,6 +1420,7 @@ function Settings({
             onState(
                 await requestNative<ApplicationState>("repository.disconnect", {
                     repositoryID,
+                    secretStorage: preferences.repository?.secretStorage,
                 }),
             )
         } catch (error) {

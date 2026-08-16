@@ -223,6 +223,63 @@ describe("Snapshotter app", () => {
         })
     })
 
+    it("opens a repository with secrets synced from 1Password", async () => {
+        const unconfigured = {
+            ...readyState,
+            status: "unconfigured" as const,
+            preferences: {
+                ...readyState.preferences,
+                repository: undefined,
+                sources: [],
+            },
+            snapshots: [],
+        }
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "state.get") return unconfigured
+            if (type === "onepassword.vaults") {
+                return [{ id: "vault-id", title: "Private" }]
+            }
+            if (type === "onepassword.items") {
+                return [{ id: "item-id", title: "Archive" }]
+            }
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Set up your backup")
+
+        fireEvent.click(screen.getByRole("button", { name: "1Password" }))
+        fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
+        fireEvent.change(screen.getByLabelText("1Password account"), {
+            target: { value: "example.1password.com" },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Choose vault…" }))
+        await screen.findByRole("combobox", { name: "Vault" })
+        fireEvent.click(
+            screen.getByRole("button", { name: "Use synced secrets…" }),
+        )
+        await screen.findByRole("combobox", { name: "Snapshotter item" })
+        fireEvent.click(screen.getByRole("button", { name: "S3" }))
+        fireEvent.change(screen.getByLabelText("Destination"), {
+            target: { value: "s3:s3.amazonaws.com/archive/snapshotter" },
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Open repository" }))
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "repository.open.remote",
+                expect.objectContaining({
+                    password: "",
+                    secretStorage: {
+                        provider: "onepassword",
+                        account: "example.1password.com",
+                        vaultID: "vault-id",
+                        itemID: "item-id",
+                    },
+                }),
+            )
+        })
+    })
+
     it("renders persisted sources and browses real snapshot entries", async () => {
         render(<App />)
 
