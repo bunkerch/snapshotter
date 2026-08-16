@@ -78,8 +78,6 @@ footer {
     flex: 0 0 auto;
     height: 28px;
     padding: 0 3px;
-    background: color-mix(in srgb, var(--material) 88%, transparent);
-    backdrop-filter: blur(24px) saturate(180%);
 }
 
 .brand {
