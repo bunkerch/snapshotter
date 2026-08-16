@@ -20,13 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         if active {
             button.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Backup running")
             button.image?.isTemplate = true
-            button.wantsLayer = true
+            guard let layer = centeredRotationLayer(for: button) else { return }
             let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
             rotation.fromValue = 0
             rotation.toValue = Double.pi * 2
             rotation.duration = 1.25
             rotation.repeatCount = .infinity
-            button.layer?.add(rotation, forKey: "snapshotter.backup.rotation")
+            layer.add(rotation, forKey: "snapshotter.backup.rotation")
         } else {
             button.layer?.removeAnimation(forKey: "snapshotter.backup.rotation")
             button.image = NSImage(systemSymbolName: "shield.checkered", accessibilityDescription: "Snapshotter")
@@ -81,6 +81,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         button.target = self
         button.action = #selector(togglePopover)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private func centeredRotationLayer(for view: NSView) -> CALayer? {
+        view.wantsLayer = true
+        guard let layer = view.layer else { return nil }
+
+        let frame = layer.frame
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: frame.midX, y: frame.midY)
+        return layer
     }
 
     @objc private func togglePopover() {
