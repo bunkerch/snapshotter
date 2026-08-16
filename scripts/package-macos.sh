@@ -4,7 +4,15 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP="$ROOT/build/Snapshotter.app"
 CONTENTS="$APP/Contents"
-IDENTITY=${CODESIGN_IDENTITY:--}
+if [ -n "${CODESIGN_IDENTITY+x}" ]; then
+    IDENTITY=$CODESIGN_IDENTITY
+else
+    IDENTITY=$(security find-identity -v -p codesigning | awk '/^[[:space:]]*[0-9]+\)/ { print $2; exit }')
+    if [ -z "$IDENTITY" ]; then
+        echo "No code-signing identity found. Set CODESIGN_IDENTITY=- only for a throwaway build." >&2
+        exit 1
+    fi
+fi
 
 cd "$ROOT"
 zsh -ic 'pnpm build'

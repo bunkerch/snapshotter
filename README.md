@@ -89,12 +89,16 @@ make app
 open build/Snapshotter.app
 ```
 
-Packaging uses ad-hoc signing by default. For a distributable build, provide a
-Developer ID identity:
+Packaging automatically uses the first valid identity in the login Keychain. A
+specific identity can be selected for a distributable build:
 
 ```sh
 CODESIGN_IDENTITY="Developer ID Application: Example (TEAMID)" make app
 ```
+
+Use `CODESIGN_IDENTITY=- make app` only for a throwaway build. Ad-hoc signatures
+change when the application changes, so macOS cannot persist Keychain access for
+them across builds.
 
 Create a compressed installer image at `build/Snapshotter.dmg`:
 
