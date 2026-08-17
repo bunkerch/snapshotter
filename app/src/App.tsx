@@ -405,6 +405,25 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
+            <fieldset
+                className="repository-mode"
+                aria-label="Repository action"
+            >
+                <button
+                    type="button"
+                    className={repositoryMode === "create" ? "selected" : ""}
+                    onClick={() => setRepositoryMode("create")}
+                >
+                    New repository
+                </button>
+                <button
+                    type="button"
+                    className={repositoryMode === "open" ? "selected" : ""}
+                    onClick={() => setRepositoryMode("open")}
+                >
+                    Open existing
+                </button>
+            </fieldset>
             <fieldset className="repository-mode" aria-label="Secret storage">
                 <button
                     type="button"
@@ -567,25 +586,6 @@ function Setup({
                     </small>
                 </div>
             )}
-            <fieldset
-                className="repository-mode"
-                aria-label="Repository action"
-            >
-                <button
-                    type="button"
-                    className={repositoryMode === "create" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("create")}
-                >
-                    New repository
-                </button>
-                <button
-                    type="button"
-                    className={repositoryMode === "open" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("open")}
-                >
-                    Open existing
-                </button>
-            </fieldset>
             <fieldset
                 className="destination-kind"
                 aria-label="Destination type"

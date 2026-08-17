@@ -51,7 +51,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 
 	backend, err := openBackend(ctx, configured, credentials, true)
 	if err != nil {
-		return fmt.Errorf("create local backend: %w", err)
+		return clarifyInitializationError(fmt.Errorf("create local backend: %w", err))
 	}
 	repo, err := repository.New(backend, repository.Options{})
 	if err != nil {
@@ -60,10 +60,19 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 	}
 	if err := repo.Init(ctx, restic.StableRepoVersion, string(password), nil); err != nil {
 		_ = repo.Close()
-		return fmt.Errorf("initialize repository: %w", err)
+		return clarifyInitializationError(fmt.Errorf("initialize repository: %w", err))
 	}
 	r.repo = repo
 	return nil
+}
+
+func clarifyInitializationError(err error) error {
+	message := err.Error()
+	if strings.Contains(message, "config file already exists") ||
+		strings.Contains(message, "repository master key and config already initialized") {
+		return errors.New("repository already exists; choose Open existing to connect with its password")
+	}
+	return err
 }
 
 func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) error {

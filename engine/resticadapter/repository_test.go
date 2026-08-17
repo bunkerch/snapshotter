@@ -2,6 +2,7 @@ package resticadapter
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,31 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	}
 	if err := opener.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInitializeExistingRepositorySuggestsOpeningIt(t *testing.T) {
+	configured := domain.Repository{
+		ID: "test", Name: "Test Repository", Kind: domain.RepositoryLocal, Location: t.TempDir(),
+	}
+	creator := &Repository{}
+	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("password")); err != nil {
+		t.Fatal(err)
+	}
+	if err := creator.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (&Repository{}).Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("password"))
+	if err == nil || !strings.Contains(err.Error(), "already exists; choose Open existing") {
+		t.Fatalf("expected actionable existing repository error, got %v", err)
+	}
+}
+
+func TestRemoteInitializationErrorSuggestsOpeningExistingRepository(t *testing.T) {
+	err := clarifyInitializationError(errors.New("initialize repository: repository master key and config already initialized"))
+	if !strings.Contains(err.Error(), "already exists; choose Open existing") {
+		t.Fatalf("expected actionable existing repository error, got %v", err)
 	}
 }
 
