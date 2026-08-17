@@ -305,6 +305,32 @@ describe("Snapshotter app", () => {
         })
     })
 
+    it("edits and displays schedules as wall-clock time", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            within(screen.getByRole("navigation")).getByRole("button", {
+                name: "Settings",
+            }),
+        )
+
+        expect(screen.getByText("Daily at 09:00")).toBeTruthy()
+        expect(
+            screen.getByLabelText<HTMLInputElement>("Backup time").value,
+        ).toBe("09:00")
+        fireEvent.change(screen.getByLabelText("Backup time"), {
+            target: { value: "18:45" },
+        })
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("schedule.set", {
+                ...readyState.preferences.schedule,
+                hour: 18,
+                minute: 45,
+            })
+        })
+    })
+
     it("configures application presets and exclusion patterns", async () => {
         render(<App />)
         await screen.findByText("Documents")

@@ -67,3 +67,21 @@ func TestWeeklyBackupIsNotDueAfterCompletion(t *testing.T) {
 		t.Fatal("completed weekly backup should not be due")
 	}
 }
+
+func TestDailyScheduleUsesCurrentLocation(t *testing.T) {
+	location, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := domain.Schedule{Enabled: true, Kind: domain.ScheduleDaily, Hour: 9}
+	now := time.Date(2026, time.July, 15, 9, 1, 0, 0, location)
+
+	due, scheduled, err := Due(now, time.Time{}, configured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.July, 15, 9, 0, 0, 0, location)
+	if !due || !scheduled.Equal(want) || scheduled.Location() != location {
+		t.Fatalf("got due=%v scheduled=%v in %v, want due at %v in %v", due, scheduled, scheduled.Location(), want, location)
+	}
+}
