@@ -122,7 +122,7 @@ persisted in UI state. Keychain storage is handled by the native layer; optional
 1Password storage uses the official Go SDK and the 1Password desktop app.
 
 To use 1Password storage, install and sign in to 1Password for Mac, then enable
-**Settings > Developer > Integrate with other apps**. Enable Touch ID under
+**Settings > Developer > Integrate with 1Password SDKs**. Enable Touch ID under
 **Settings > Security** to authorize Snapshotter with biometrics. During repository
 setup, select 1Password, choose a detected account, authorize access, and choose a
 vault. On macOS, Snapshotter detects active accounts from

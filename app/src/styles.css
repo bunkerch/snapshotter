@@ -774,6 +774,11 @@ small {
     justify-self: start;
 }
 
+.onepassword-actions {
+    display: flex;
+    gap: 6px;
+}
+
 .setup-button {
     margin-top: 6px;
 }

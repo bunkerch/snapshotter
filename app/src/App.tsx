@@ -474,33 +474,39 @@ function Setup({
                             />
                         </label>
                     )}
-                    {!detectingAccounts && onePasswordAccounts.length > 0 && (
-                        <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => {
-                                clearOnePasswordSelections()
-                                setManualAccount((manual) => !manual)
-                                setOnePasswordAccount(
-                                    manualAccount
-                                        ? onePasswordAccounts[0].id
-                                        : "",
-                                )
-                            }}
-                        >
-                            {manualAccount
-                                ? "Use detected account"
-                                : "Enter manually"}
-                        </button>
+                    {!detectingAccounts && (
+                        <div className="onepassword-actions">
+                            {onePasswordAccounts.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() => {
+                                        clearOnePasswordSelections()
+                                        setManualAccount((manual) => !manual)
+                                        setOnePasswordAccount(
+                                            manualAccount
+                                                ? onePasswordAccounts[0].id
+                                                : "",
+                                        )
+                                    }}
+                                >
+                                    {manualAccount
+                                        ? "Use detected account"
+                                        : "Enter manually"}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={
+                                    !onePasswordAccount.trim() || loadingVaults
+                                }
+                                onClick={() => void loadOnePasswordVaults()}
+                            >
+                                {loadingVaults ? "Connecting…" : "Load vaults"}
+                            </button>
+                        </div>
                     )}
-                    <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={!onePasswordAccount.trim() || loadingVaults}
-                        onClick={() => void loadOnePasswordVaults()}
-                    >
-                        {loadingVaults ? "Authorizing…" : "Choose vault…"}
-                    </button>
                     {onePasswordVaults.length > 0 && (
                         <label>
                             Vault

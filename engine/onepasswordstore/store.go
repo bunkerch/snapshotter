@@ -71,7 +71,7 @@ func New() *Store {
 			onepassword.WithIntegrationInfo("Snapshotter", "0.1.0"),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("connect to 1Password: %w", err)
+			return nil, fmt.Errorf("connect to 1Password: %w", currentDesktopSetting(err))
 		}
 		return sdkClient{client: connected}, nil
 	})
@@ -88,7 +88,7 @@ func (s *Store) Vaults(ctx context.Context, account string) ([]Vault, error) {
 	}
 	listed, err := connected.listVaults(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list 1Password vaults: %w", err)
+		return nil, fmt.Errorf("list 1Password vaults: %w", currentDesktopSetting(err))
 	}
 	vaults := make([]Vault, 0, len(listed))
 	for _, vault := range listed {
@@ -104,7 +104,7 @@ func (s *Store) Items(ctx context.Context, account, vaultID string) ([]Item, err
 	}
 	listed, err := connected.listItems(ctx, vaultID)
 	if err != nil {
-		return nil, fmt.Errorf("list 1Password items: %w", err)
+		return nil, fmt.Errorf("list 1Password items: %w", currentDesktopSetting(err))
 	}
 	items := make([]Item, 0)
 	for _, item := range listed {
@@ -141,7 +141,7 @@ func (s *Store) Save(ctx context.Context, repository domain.Repository, credenti
 		Tags:     []string{"Snapshotter"},
 	})
 	if err != nil {
-		return "", fmt.Errorf("save secrets in 1Password: %w", err)
+		return "", fmt.Errorf("save secrets in 1Password: %w", currentDesktopSetting(err))
 	}
 	return item.ID, nil
 }
@@ -153,7 +153,7 @@ func (s *Store) Load(ctx context.Context, storage domain.SecretStorage) (domain.
 	}
 	item, err := connected.get(ctx, storage.VaultID, storage.ItemID)
 	if err != nil {
-		return domain.RepositoryCredentials{}, "", fmt.Errorf("load secrets from 1Password: %w", err)
+		return domain.RepositoryCredentials{}, "", fmt.Errorf("load secrets from 1Password: %w", currentDesktopSetting(err))
 	}
 	var password, encodedCredentials string
 	for _, field := range item.Fields {
@@ -180,9 +180,17 @@ func (s *Store) Archive(ctx context.Context, storage domain.SecretStorage) error
 		return err
 	}
 	if err := connected.archive(ctx, storage.VaultID, storage.ItemID); err != nil {
-		return fmt.Errorf("archive 1Password item: %w", err)
+		return fmt.Errorf("archive 1Password item: %w", currentDesktopSetting(err))
 	}
 	return nil
+}
+
+func currentDesktopSetting(err error) error {
+	return errors.New(strings.ReplaceAll(
+		err.Error(),
+		"Settings > Developer > Integrate with other apps",
+		"Settings > Developer > Integrate with 1Password SDKs",
+	))
 }
 
 func (s *Store) client(ctx context.Context, account string) (client, error) {

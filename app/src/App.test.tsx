@@ -266,7 +266,7 @@ describe("Snapshotter app", () => {
         })
         expect(account.value).toBe("account-id")
         fireEvent.change(account, { target: { value: "work-account-id" } })
-        fireEvent.click(screen.getByRole("button", { name: "Choose vault…" }))
+        fireEvent.click(screen.getByRole("button", { name: "Load vaults" }))
         await screen.findByRole("combobox", { name: "Vault" })
         fireEvent.click(
             screen.getByRole("button", { name: "Use synced secrets…" }),

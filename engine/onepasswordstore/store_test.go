@@ -2,11 +2,20 @@ package onepasswordstore
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	onepassword "github.com/1password/onepassword-sdk-go"
 	"github.com/restic/restic/app/domain"
 )
+
+func TestDesktopErrorsUseCurrentSettingName(t *testing.T) {
+	err := currentDesktopSetting(errors.New("Make sure Settings > Developer > Integrate with other apps is enabled"))
+	if strings.Contains(err.Error(), "other apps") || !strings.Contains(err.Error(), "Integrate with 1Password SDKs") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 type fakeClient struct {
 	created  onepassword.ItemCreateParams
