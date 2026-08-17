@@ -236,6 +236,18 @@ describe("Snapshotter app", () => {
         }
         vi.mocked(requestNative).mockImplementation(async (type) => {
             if (type === "state.get") return unconfigured
+            if (type === "onepassword.accounts") {
+                return [
+                    {
+                        id: "account-id",
+                        name: "Personal",
+                    },
+                    {
+                        id: "work-account-id",
+                        name: "Work",
+                    },
+                ]
+            }
             if (type === "onepassword.vaults") {
                 return [{ id: "vault-id", title: "Private" }]
             }
@@ -249,9 +261,11 @@ describe("Snapshotter app", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "1Password" }))
         fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
-        fireEvent.change(screen.getByLabelText("1Password account"), {
-            target: { value: "example.1password.com" },
+        const account = await screen.findByRole<HTMLSelectElement>("combobox", {
+            name: "1Password account",
         })
+        expect(account.value).toBe("account-id")
+        fireEvent.change(account, { target: { value: "work-account-id" } })
         fireEvent.click(screen.getByRole("button", { name: "Choose vault…" }))
         await screen.findByRole("combobox", { name: "Vault" })
         fireEvent.click(
@@ -271,7 +285,7 @@ describe("Snapshotter app", () => {
                     password: "",
                     secretStorage: {
                         provider: "onepassword",
-                        account: "example.1password.com",
+                        account: "work-account-id",
                         vaultID: "vault-id",
                         itemID: "item-id",
                     },

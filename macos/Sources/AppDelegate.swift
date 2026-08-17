@@ -128,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "resticNative", let raw = message.body as? String,
+        guard message.name == "resticNative", message.frameInfo.isMainFrame,
+              let raw = message.body as? String,
               let data = raw.data(using: .utf8),
               let request = try? JSONDecoder().decode(BridgeRequest.self, from: data) else { return }
 
@@ -141,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.open.remote": configureRemoteRepository(request: request, create: false, webView: message.webView)
         case "repository.unlock": unlockRepository(request: request, raw: raw, webView: message.webView)
         case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
+        case "onepassword.accounts": Backend.shared.discoverOnePasswordAccounts(requestID: request.id, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
@@ -552,8 +554,23 @@ private final class Backend: @unchecked Sendable {
         Self.respond(Self.errorResponse(error), requestID: requestID, reference: WebViewReference(webView))
     }
 
+    func discoverOnePasswordAccounts(requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        queue.async {
+            let accounts = OnePasswordAccountDiscovery.accounts().map { ["id": $0.id, "name": $0.name] }
+            Self.respondData(accounts, requestID: requestID, reference: reference)
+        }
+    }
+
     func succeed(requestID: String?, webView: WKWebView?) {
         Self.respond(#"{"ok":true}"#, requestID: requestID, reference: WebViewReference(webView))
+    }
+
+    private static func respondData(_ data: Any, requestID: String?, reference: WebViewReference) {
+        let payload = ["ok": true, "data": data] as [String: Any]
+        guard let encoded = try? JSONSerialization.data(withJSONObject: payload),
+              let response = String(data: encoded, encoding: .utf8) else { return }
+        respond(response, requestID: requestID, reference: reference)
     }
 
     private static func respond(_ response: String, requestID: String?, reference: WebViewReference) {

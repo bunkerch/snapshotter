@@ -124,9 +124,12 @@ persisted in UI state. Keychain storage is handled by the native layer; optional
 To use 1Password storage, install and sign in to 1Password for Mac, then enable
 **Settings > Developer > Integrate with other apps**. Enable Touch ID under
 **Settings > Security** to authorize Snapshotter with biometrics. During repository
-setup, select 1Password, enter the account name shown in the app, authorize access,
-and choose a vault. Snapshotter stores only the account, vault ID, and item ID in its
-preferences. The repository password and remote-backend credentials remain in the
+setup, select 1Password, choose a detected account, authorize access, and choose a
+vault. On macOS, Snapshotter detects active accounts from
+1Password's read-only local metadata and presents them by display name; manual entry
+remains available if detection is unavailable. Snapshotter stores only the account
+UUID, vault ID, and item ID in its preferences. The repository password and
+remote-backend credentials remain in the
 synced 1Password item. On another Mac, choose **Open existing**, select the same
 vault, and use the synced Snapshotter item instead of entering the secrets again.
 Disconnecting a repository leaves its synced item in 1Password so other devices do

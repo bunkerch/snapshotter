@@ -17,7 +17,7 @@ import {
     Trash2,
     Wrench,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
     isPackagedHost,
     requestNative,
@@ -245,6 +245,11 @@ function Setup({
         "keychain" | "onepassword"
     >("keychain")
     const [onePasswordAccount, setOnePasswordAccount] = useState("")
+    const [onePasswordAccounts, setOnePasswordAccounts] = useState<
+        { id: string; name: string }[]
+    >([])
+    const [detectingAccounts, setDetectingAccounts] = useState(false)
+    const [manualAccount, setManualAccount] = useState(false)
     const [onePasswordVaultID, setOnePasswordVaultID] = useState("")
     const [onePasswordVaults, setOnePasswordVaults] = useState<
         { id: string; title: string }[]
@@ -254,29 +259,67 @@ function Setup({
     >([])
     const [onePasswordItemID, setOnePasswordItemID] = useState("")
     const [loadingVaults, setLoadingVaults] = useState(false)
+    const onePasswordRequestGeneration = useRef(0)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
 
+    const clearOnePasswordItems = () => {
+        onePasswordRequestGeneration.current += 1
+        setOnePasswordItems([])
+        setOnePasswordItemID("")
+    }
+
+    const clearOnePasswordSelections = () => {
+        clearOnePasswordItems()
+        setOnePasswordVaults([])
+        setOnePasswordVaultID("")
+    }
+
+    const discoverOnePasswordAccounts = async () => {
+        setDetectingAccounts(true)
+        try {
+            const accounts = await requestNative<
+                { id: string; name: string }[]
+            >("onepassword.accounts")
+            setOnePasswordAccounts(accounts)
+            if (accounts.length > 0) {
+                setOnePasswordAccount(accounts[0].id)
+            } else {
+                setManualAccount(true)
+            }
+        } catch {
+            setManualAccount(true)
+        } finally {
+            setDetectingAccounts(false)
+        }
+    }
+
     const loadOnePasswordVaults = async () => {
+        const generation = onePasswordRequestGeneration.current
         setLoadingVaults(true)
         try {
             const vaults = await requestNative<{ id: string; title: string }[]>(
                 "onepassword.vaults",
                 { account: onePasswordAccount },
             )
+            if (generation !== onePasswordRequestGeneration.current) return
             setOnePasswordVaults(vaults)
             setOnePasswordVaultID(vaults[0]?.id ?? "")
             setOnePasswordItems([])
             setOnePasswordItemID("")
             setError(undefined)
         } catch (requestError) {
+            if (generation !== onePasswordRequestGeneration.current) return
             setError(message(requestError))
         } finally {
-            setLoadingVaults(false)
+            if (generation === onePasswordRequestGeneration.current) {
+                setLoadingVaults(false)
+            }
         }
     }
 
     const loadOnePasswordItems = async () => {
+        const generation = onePasswordRequestGeneration.current
         setLoadingVaults(true)
         try {
             const items = await requestNative<{ id: string; title: string }[]>(
@@ -286,6 +329,7 @@ function Setup({
                     vaultID: onePasswordVaultID,
                 },
             )
+            if (generation !== onePasswordRequestGeneration.current) return
             setOnePasswordItems(items)
             setOnePasswordItemID(items[0]?.id ?? "")
             setError(
@@ -294,9 +338,12 @@ function Setup({
                     : undefined,
             )
         } catch (requestError) {
+            if (generation !== onePasswordRequestGeneration.current) return
             setError(message(requestError))
         } finally {
-            setLoadingVaults(false)
+            if (generation === onePasswordRequestGeneration.current) {
+                setLoadingVaults(false)
+            }
         }
     }
 
@@ -371,28 +418,81 @@ function Setup({
                     className={
                         secretProvider === "onepassword" ? "selected" : ""
                     }
-                    onClick={() => setSecretProvider("onepassword")}
+                    onClick={() => {
+                        setSecretProvider("onepassword")
+                        if (!onePasswordAccount && !detectingAccounts) {
+                            void discoverOnePasswordAccounts()
+                        }
+                    }}
                 >
                     1Password
                 </button>
             </fieldset>
             {secretProvider === "onepassword" && (
                 <div className="onepassword-storage">
-                    <label>
-                        1Password account
-                        <input
-                            value={onePasswordAccount}
-                            placeholder="Account name or ID"
-                            onChange={(event) => {
-                                setOnePasswordAccount(event.target.value)
-                                setOnePasswordVaults([])
-                                setOnePasswordVaultID("")
-                                setOnePasswordItems([])
-                                setOnePasswordItemID("")
+                    {detectingAccounts && (
+                        <small className="setup-hint">
+                            Detecting 1Password accounts…
+                        </small>
+                    )}
+                    {!detectingAccounts &&
+                        !manualAccount &&
+                        onePasswordAccounts.length > 0 && (
+                            <label>
+                                1Password account
+                                <select
+                                    value={onePasswordAccount}
+                                    onChange={(event) => {
+                                        clearOnePasswordSelections()
+                                        setOnePasswordAccount(
+                                            event.target.value,
+                                        )
+                                    }}
+                                >
+                                    {onePasswordAccounts.map((account) => (
+                                        <option
+                                            key={account.id}
+                                            value={account.id}
+                                        >
+                                            {account.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+                    {!detectingAccounts && manualAccount && (
+                        <label>
+                            1Password account
+                            <input
+                                value={onePasswordAccount}
+                                placeholder="Account name or ID"
+                                onChange={(event) => {
+                                    clearOnePasswordSelections()
+                                    setOnePasswordAccount(event.target.value)
+                                }}
+                                spellCheck={false}
+                            />
+                        </label>
+                    )}
+                    {!detectingAccounts && onePasswordAccounts.length > 0 && (
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => {
+                                clearOnePasswordSelections()
+                                setManualAccount((manual) => !manual)
+                                setOnePasswordAccount(
+                                    manualAccount
+                                        ? onePasswordAccounts[0].id
+                                        : "",
+                                )
                             }}
-                            spellCheck={false}
-                        />
-                    </label>
+                        >
+                            {manualAccount
+                                ? "Use detected account"
+                                : "Enter manually"}
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="secondary-button"
@@ -407,9 +507,8 @@ function Setup({
                             <select
                                 value={onePasswordVaultID}
                                 onChange={(event) => {
+                                    clearOnePasswordItems()
                                     setOnePasswordVaultID(event.target.value)
-                                    setOnePasswordItems([])
-                                    setOnePasswordItemID("")
                                 }}
                             >
                                 {onePasswordVaults.map((vault) => (
