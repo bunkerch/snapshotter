@@ -169,13 +169,11 @@ describe("Snapshotter app", () => {
         fireEvent.change(screen.getByLabelText("Secret key"), {
             target: { value: "secret" },
         })
-        fireEvent.click(
-            screen.getByRole("button", { name: "Create repository" }),
-        )
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
-                "repository.create.remote",
+                "repository.configure.remote",
                 expect.objectContaining({
                     kind: "s3",
                     location: "s3:s3.amazonaws.com/archive/snapshotter",
@@ -188,7 +186,7 @@ describe("Snapshotter app", () => {
         })
     })
 
-    it("opens an existing remote repository", async () => {
+    it("configures an existing remote repository", async () => {
         vi.mocked(requestNative).mockResolvedValueOnce({
             ...readyState,
             status: "unconfigured",
@@ -202,7 +200,6 @@ describe("Snapshotter app", () => {
         render(<App />)
         await screen.findByText("Set up your backup")
 
-        fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
         fireEvent.click(screen.getByRole("button", { name: "SFTP" }))
         fireEvent.change(screen.getByLabelText("Password"), {
             target: { value: "repository-secret" },
@@ -210,14 +207,113 @@ describe("Snapshotter app", () => {
         fireEvent.change(screen.getByLabelText("Destination"), {
             target: { value: "sftp:user@example.com:/archive" },
         })
-        fireEvent.click(screen.getByRole("button", { name: "Open repository" }))
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
-                "repository.open.remote",
+                "repository.configure.remote",
                 expect.objectContaining({
                     kind: "sftp",
                     location: "sftp:user@example.com:/archive",
+                }),
+            )
+        })
+    })
+
+    it("opens a repository with secrets synced from 1Password", async () => {
+        const unconfigured = {
+            ...readyState,
+            status: "unconfigured" as const,
+            preferences: {
+                ...readyState.preferences,
+                repository: undefined,
+                sources: [],
+            },
+            snapshots: [],
+        }
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "state.get") return unconfigured
+            if (type === "onepassword.accounts") {
+                return [
+                    {
+                        id: "account-id",
+                        name: "Personal",
+                    },
+                    {
+                        id: "work-account-id",
+                        name: "Work",
+                    },
+                ]
+            }
+            if (type === "onepassword.vaults") {
+                return [{ id: "vault-id", title: "Private" }]
+            }
+            if (type === "onepassword.items") {
+                return [
+                    {
+                        id: "item-id",
+                        title: "Archive",
+                        kind: "s3",
+                        location: "s3:s3.amazonaws.com/archive/snapshotter",
+                    },
+                    { id: "legacy-item", title: "Legacy" },
+                ]
+            }
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Set up your backup")
+
+        fireEvent.click(screen.getByRole("button", { name: "1Password" }))
+        const account = await screen.findByRole<HTMLSelectElement>("combobox", {
+            name: "1Password account",
+        })
+        expect(account.value).toBe("account-id")
+        fireEvent.change(account, { target: { value: "work-account-id" } })
+        fireEvent.click(screen.getByRole("button", { name: "Load vaults" }))
+        await screen.findByRole("combobox", { name: "Vault" })
+        fireEvent.click(
+            screen.getByRole("button", { name: "Use synced secrets…" }),
+        )
+        fireEvent.change(
+            await screen.findByRole("combobox", {
+                name: "Snapshotter item",
+            }),
+            { target: { value: "item-id" } },
+        )
+        expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+            "Archive",
+        )
+        expect(
+            screen.getByLabelText<HTMLInputElement>("Destination").value,
+        ).toBe("s3:s3.amazonaws.com/archive/snapshotter")
+
+        fireEvent.change(
+            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            { target: { value: "legacy-item" } },
+        )
+        expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+            "Legacy",
+        )
+        expect(screen.queryByLabelText("Destination")).toBeNull()
+
+        fireEvent.change(
+            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            { target: { value: "item-id" } },
+        )
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith(
+                "repository.configure.remote",
+                expect.objectContaining({
+                    password: "",
+                    secretStorage: {
+                        provider: "onepassword",
+                        account: "work-account-id",
+                        vaultID: "vault-id",
+                        itemID: "item-id",
+                    },
                 }),
             )
         })

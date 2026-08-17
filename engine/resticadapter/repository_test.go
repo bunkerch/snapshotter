@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	minio "github.com/minio/minio-go/v7"
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/service"
 )
@@ -42,6 +43,46 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	}
 	if err := opener.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigureCreatesOrUnlocksWithoutFallingBackOnWrongPassword(t *testing.T) {
+	configured := domain.Repository{
+		ID: "test", Name: "Test Repository", Kind: domain.RepositoryLocal, Location: t.TempDir(),
+	}
+	password := []byte("correct password")
+	creator := &Repository{}
+	created, err := creator.Configure(context.Background(), configured, domain.RepositoryCredentials{}, password)
+	if err != nil || !created {
+		t.Fatalf("expected a new repository, got created=%v err=%v", created, err)
+	}
+	if err := creator.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	opener := &Repository{}
+	created, err = opener.Configure(context.Background(), configured, domain.RepositoryCredentials{}, password)
+	if err != nil || created {
+		t.Fatalf("expected an existing repository, got created=%v err=%v", created, err)
+	}
+	if err := opener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err = (&Repository{}).Configure(context.Background(), configured, domain.RepositoryCredentials{}, []byte("wrong password"))
+	if err == nil || created || !strings.Contains(err.Error(), "unlock repository") {
+		t.Fatalf("wrong password must not initialize: created=%v err=%v", created, err)
+	}
+}
+
+func TestConfigureRecognizesOnlyMissingS3BucketAsAbsent(t *testing.T) {
+	missing := minio.ErrorResponse{Code: minio.NoSuchBucket}
+	denied := minio.ErrorResponse{Code: "AccessDenied"}
+	if !isMissingS3Bucket(domain.RepositoryS3, missing) {
+		t.Fatal("missing S3 bucket was not recognized")
+	}
+	if isMissingS3Bucket(domain.RepositoryS3, denied) || isMissingS3Bucket(domain.RepositoryREST, missing) {
+		t.Fatal("non-absence error was treated as a missing S3 bucket")
 	}
 }
 

@@ -22,6 +22,14 @@ func Validate(preferences domain.Preferences) error {
 		if strings.TrimSpace(preferences.Repository.Location) == "" {
 			return errors.New("repository location is required")
 		}
+		if storage := preferences.Repository.SecretStorage; storage != nil {
+			if storage.Provider != "onepassword" {
+				return fmt.Errorf("unsupported secret storage provider %q", storage.Provider)
+			}
+			if strings.TrimSpace(storage.Account) == "" || strings.TrimSpace(storage.VaultID) == "" || strings.TrimSpace(storage.ItemID) == "" {
+				return errors.New("1Password account, vault, and item identifiers are required")
+			}
+		}
 	}
 	for _, source := range preferences.Sources {
 		if strings.TrimSpace(source.Path) == "" {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/restic/restic/app/config"
 	"github.com/restic/restic/app/domain"
+	"github.com/restic/restic/app/onepasswordstore"
 	"github.com/restic/restic/app/resticadapter"
 	scheduler "github.com/restic/restic/app/schedule"
 	"github.com/restic/restic/app/service"
@@ -26,7 +27,17 @@ type runtime struct {
 	progress    service.Progress
 	store       *config.Store
 	repository  *resticadapter.Repository
+	onePassword secretStore
 	coordinator service.Coordinator
+}
+
+type secretStore interface {
+	Vaults(context.Context, string) ([]onepasswordstore.Vault, error)
+	Items(context.Context, string, string) ([]onepasswordstore.Item, error)
+	Save(context.Context, domain.Repository, domain.RepositoryCredentials, string) (string, error)
+	UpdateMetadata(context.Context, domain.Repository) error
+	Load(context.Context, domain.SecretStorage) (domain.RepositoryCredentials, string, error)
+	Archive(context.Context, domain.SecretStorage) error
 }
 
 func (r *runtime) backupProgress() service.Progress {
@@ -60,7 +71,11 @@ type applicationState struct {
 }
 
 func newRuntime(preferencesPath string) *runtime {
-	return &runtime{store: config.NewStore(preferencesPath), repository: &resticadapter.Repository{}}
+	return &runtime{
+		store:       config.NewStore(preferencesPath),
+		repository:  &resticadapter.Repository{},
+		onePassword: onepasswordstore.New(),
+	}
 }
 
 func (r *runtime) handle(ctx context.Context, raw []byte) response {
@@ -89,14 +104,16 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.removeExclusion(req.Payload)
 	case "application.setEnabled":
 		data, err = r.setApplicationEnabled(req.Payload)
-	case "repository.create":
-		data, err = r.createRepository(ctx, req.Payload)
-	case "repository.connect":
-		data, err = r.connectRepository(ctx, req.Payload)
+	case "repository.configure":
+		data, err = r.configureRepository(ctx, req.Payload)
 	case "repository.unlock":
 		data, err = r.unlockRepository(ctx, req.Payload)
 	case "repository.disconnect":
-		data, err = r.disconnectRepository()
+		data, err = r.disconnectRepository(ctx)
+	case "onepassword.vaults":
+		data, err = r.onePasswordVaults(ctx, req.Payload)
+	case "onepassword.items":
+		data, err = r.onePasswordItems(ctx, req.Payload)
 	case "backup.start":
 		data, err = r.backup(ctx)
 	case "schedule.set":
@@ -126,7 +143,7 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 	return response{OK: true, Data: data}
 }
 
-func (r *runtime) disconnectRepository() (applicationState, error) {
+func (r *runtime) disconnectRepository(ctx context.Context) (applicationState, error) {
 	preferences, err := r.store.Load()
 	if err != nil {
 		return applicationState{}, err
@@ -138,7 +155,28 @@ func (r *runtime) disconnectRepository() (applicationState, error) {
 	if err := r.store.Save(preferences); err != nil {
 		return applicationState{}, err
 	}
-	return r.state(context.Background())
+	return r.state(ctx)
+}
+
+func (r *runtime) onePasswordVaults(ctx context.Context, payload json.RawMessage) ([]onepasswordstore.Vault, error) {
+	var input struct {
+		Account string `json:"account"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return nil, fmt.Errorf("decode 1Password account: %w", err)
+	}
+	return r.onePassword.Vaults(ctx, input.Account)
+}
+
+func (r *runtime) onePasswordItems(ctx context.Context, payload json.RawMessage) ([]onepasswordstore.Item, error) {
+	var input struct {
+		Account string `json:"account"`
+		VaultID string `json:"vaultID"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return nil, fmt.Errorf("decode 1Password vault: %w", err)
+	}
+	return r.onePassword.Items(ctx, input.Account, input.VaultID)
 }
 
 func (r *runtime) deleteSnapshot(ctx context.Context, payload json.RawMessage) (applicationState, error) {
@@ -553,7 +591,7 @@ func normalizeSourcePath(path string) (string, error) {
 	return filepath.Clean(absolute), nil
 }
 
-func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+func (r *runtime) configureRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
 	var input struct {
 		Repository  domain.Repository            `json:"repository"`
 		Credentials domain.RepositoryCredentials `json:"credentials"`
@@ -562,42 +600,31 @@ func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage)
 	if err := json.Unmarshal(payload, &input); err != nil {
 		return applicationState{}, fmt.Errorf("decode repository: %w", err)
 	}
-	if err := r.repository.Initialize(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
+	if storage := input.Repository.SecretStorage; storage != nil && storage.ItemID != "" {
+		var err error
+		input.Credentials, input.Password, err = r.onePassword.Load(ctx, *storage)
+		if err != nil {
+			return applicationState{}, err
+		}
+	}
+	if _, err := r.repository.Configure(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
+		return applicationState{}, err
+	}
+	createdItem, err := r.persistOnePasswordSecrets(ctx, &input.Repository, input.Credentials, input.Password)
+	if err != nil {
+		_ = r.repository.Close()
 		return applicationState{}, err
 	}
 	preferences, err := r.store.Load()
 	if err != nil {
 		_ = r.repository.Close()
+		r.archiveCreatedItem(ctx, input.Repository.SecretStorage, createdItem)
 		return applicationState{}, err
 	}
 	preferences.Repository = &input.Repository
 	if err := r.store.Save(preferences); err != nil {
 		_ = r.repository.Close()
-		return applicationState{}, err
-	}
-	return r.state(ctx)
-}
-
-func (r *runtime) connectRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
-	var input struct {
-		Repository  domain.Repository            `json:"repository"`
-		Credentials domain.RepositoryCredentials `json:"credentials"`
-		Password    string                       `json:"password"`
-	}
-	if err := json.Unmarshal(payload, &input); err != nil {
-		return applicationState{}, fmt.Errorf("decode repository: %w", err)
-	}
-	if err := r.repository.Unlock(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
-		return applicationState{}, err
-	}
-	preferences, err := r.store.Load()
-	if err != nil {
-		_ = r.repository.Close()
-		return applicationState{}, err
-	}
-	preferences.Repository = &input.Repository
-	if err := r.store.Save(preferences); err != nil {
-		_ = r.repository.Close()
+		r.archiveCreatedItem(ctx, input.Repository.SecretStorage, createdItem)
 		return applicationState{}, err
 	}
 	return r.state(ctx)
@@ -618,10 +645,38 @@ func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage)
 	if preferences.Repository == nil {
 		return applicationState{}, errors.New("repository is not configured")
 	}
+	if storage := preferences.Repository.SecretStorage; storage != nil {
+		input.Credentials, input.Password, err = r.onePassword.Load(ctx, *storage)
+		if err != nil {
+			return applicationState{}, err
+		}
+	}
 	if err := r.repository.Unlock(ctx, *preferences.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
 	}
 	return r.state(ctx)
+}
+
+func (r *runtime) persistOnePasswordSecrets(ctx context.Context, repository *domain.Repository, credentials domain.RepositoryCredentials, password string) (string, error) {
+	if repository.SecretStorage == nil {
+		return "", nil
+	}
+	if repository.SecretStorage.ItemID != "" {
+		return "", r.onePassword.UpdateMetadata(ctx, *repository)
+	}
+	itemID, err := r.onePassword.Save(ctx, *repository, credentials, password)
+	if err != nil {
+		return "", err
+	}
+	repository.SecretStorage.ItemID = itemID
+	return itemID, nil
+}
+
+func (r *runtime) archiveCreatedItem(ctx context.Context, storage *domain.SecretStorage, itemID string) {
+	if storage == nil || itemID == "" {
+		return
+	}
+	_ = r.onePassword.Archive(ctx, *storage)
 }
 
 func (r *runtime) backup(ctx context.Context) (applicationState, error) {

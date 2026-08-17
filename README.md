@@ -4,7 +4,7 @@ A native macOS menu bar backup manager powered by restic.
 
 Snapshotter supports local folders, S3-compatible object storage, SFTP, and
 rest-server destinations. Repository encryption passwords and remote service
-credentials are stored in macOS Keychain. SFTP uses the system SSH agent,
+credentials can be stored in macOS Keychain or a synced 1Password vault. SFTP uses the system SSH agent,
 configuration, and keys.
 
 ## Project layout
@@ -117,5 +117,26 @@ NOTARY_PROFILE="snapshotter-notary" make dmg
 ## Architecture
 
 The app never shells out to the restic executable. The Go engine is linked into the
-native application and exposes a small asynchronous API. Credentials are stored in
-the macOS Keychain by the native layer and are never persisted in the UI state.
+native application and exposes a small asynchronous API. Credentials are never
+persisted in UI state. Keychain storage is handled by the native layer; optional
+1Password storage uses the official Go SDK and the 1Password desktop app.
+
+To use 1Password storage, install and sign in to 1Password for Mac, then enable
+**Settings > Developer > Integrate with 1Password SDKs**. Enable Touch ID under
+**Settings > Security** to authorize Snapshotter with biometrics. During repository
+setup, select 1Password, choose a detected account, authorize access, and choose a
+vault. On macOS, Snapshotter detects active accounts from
+1Password's read-only local metadata and presents them by display name; manual entry
+remains available if detection is unavailable. Snapshotter stores only the account
+UUID, vault ID, and item ID in its preferences. The repository password and
+remote-backend credentials remain in the
+synced 1Password item. On another Mac, choose the same destination, load the same
+vault, and select the synced Snapshotter item instead of entering the secrets again.
+Snapshotter stores the repository type and destination in that item and adds recovery
+instructions to its notes, so the item can be used to reconnect after reinstalling macOS.
+Disconnecting a repository leaves its synced item in 1Password so other devices do
+not lose access; remove that item manually when it is no longer needed anywhere.
+
+The official SDK loads 1Password's signed IPC client library from the desktop app.
+Because that library is signed by 1Password rather than Snapshotter, packaged builds
+use the hardened-runtime library-validation exception required for this integration.

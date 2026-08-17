@@ -49,7 +49,7 @@ if [ "$IDENTITY" = "-" ]; then
 else
     codesign --force --options runtime --timestamp --sign "$IDENTITY" \
         --identifier app.snapshotter.Snapshotter "$CONTENTS/Frameworks/libsnapshotter.dylib"
-    codesign --force --options runtime --timestamp --sign "$IDENTITY" \
+    codesign --force --options runtime --timestamp --entitlements "$ROOT/macos/Resources/Snapshotter.entitlements" --sign "$IDENTITY" \
         --identifier app.snapshotter.Snapshotter "$APP"
 fi
 

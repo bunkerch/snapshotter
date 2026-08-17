@@ -12,10 +12,18 @@ const (
 )
 
 type Repository struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Kind     RepositoryKind `json:"kind"`
-	Location string         `json:"location"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Kind          RepositoryKind `json:"kind"`
+	Location      string         `json:"location"`
+	SecretStorage *SecretStorage `json:"secretStorage,omitempty"`
+}
+
+type SecretStorage struct {
+	Provider string `json:"provider"`
+	Account  string `json:"account,omitempty"`
+	VaultID  string `json:"vaultID,omitempty"`
+	ItemID   string `json:"itemID,omitempty"`
 }
 
 type RepositoryCredentials struct {

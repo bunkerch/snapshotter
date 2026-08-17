@@ -10,8 +10,37 @@ import (
 	"testing"
 
 	"github.com/restic/restic/app/domain"
+	"github.com/restic/restic/app/onepasswordstore"
 	"github.com/restic/restic/app/resticadapter"
 )
+
+type fakeSecretStore struct {
+	credentials domain.RepositoryCredentials
+	password    string
+	archived    *domain.SecretStorage
+	updated     *domain.Repository
+}
+
+func (f *fakeSecretStore) Vaults(context.Context, string) ([]onepasswordstore.Vault, error) {
+	return []onepasswordstore.Vault{{ID: "vault-id", Title: "Private"}}, nil
+}
+func (f *fakeSecretStore) Items(context.Context, string, string) ([]onepasswordstore.Item, error) {
+	return []onepasswordstore.Item{{ID: "item-id", Title: "Archive"}}, nil
+}
+func (f *fakeSecretStore) Save(context.Context, domain.Repository, domain.RepositoryCredentials, string) (string, error) {
+	return "item-id", nil
+}
+func (f *fakeSecretStore) UpdateMetadata(_ context.Context, repository domain.Repository) error {
+	f.updated = &repository
+	return nil
+}
+func (f *fakeSecretStore) Load(context.Context, domain.SecretStorage) (domain.RepositoryCredentials, string, error) {
+	return f.credentials, f.password, nil
+}
+func (f *fakeSecretStore) Archive(_ context.Context, storage domain.SecretStorage) error {
+	f.archived = &storage
+	return nil
+}
 
 func TestStateCollectionsEncodeAsArrays(t *testing.T) {
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
@@ -105,7 +134,7 @@ func TestAddSourcesRejectsFiles(t *testing.T) {
 	}
 }
 
-func TestConnectExistingRepository(t *testing.T) {
+func TestConfigureExistingRepository(t *testing.T) {
 	repositoryPath := filepath.Join(t.TempDir(), "repository")
 	configured := domain.Repository{
 		ID: "existing", Name: "Existing", Kind: domain.RepositoryLocal, Location: repositoryPath,
@@ -119,7 +148,7 @@ func TestConnectExistingRepository(t *testing.T) {
 	}
 
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
-	payload, err := json.Marshal(request{Type: "repository.connect", Payload: mustJSON(t, map[string]any{
+	payload, err := json.Marshal(request{Type: "repository.configure", Payload: mustJSON(t, map[string]any{
 		"repository": configured,
 		"password":   "secret",
 	})})
@@ -141,6 +170,43 @@ func TestConnectExistingRepository(t *testing.T) {
 	state = result.Data.(applicationState)
 	if state.Status != "unconfigured" || state.Preferences.Repository != nil {
 		t.Fatalf("unexpected disconnected state: %#v", state)
+	}
+}
+
+func TestConfigureExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
+	repositoryPath := filepath.Join(t.TempDir(), "repository")
+	configured := domain.Repository{
+		ID: "existing", Name: "Existing", Kind: domain.RepositoryLocal, Location: repositoryPath,
+	}
+	creator := &resticadapter.Repository{}
+	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := creator.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	secrets := &fakeSecretStore{password: "secret"}
+	runtime.onePassword = secrets
+	configured.SecretStorage = &domain.SecretStorage{
+		Provider: "onepassword", Account: "example", VaultID: "vault-id", ItemID: "item-id",
+	}
+	result := runtime.handle(context.Background(), mustJSON(t, request{
+		Type: "repository.configure",
+		Payload: mustJSON(t, map[string]any{
+			"repository": configured,
+		}),
+	}))
+	if !result.OK {
+		t.Fatal(result.Error)
+	}
+	state := result.Data.(applicationState)
+	if state.Status != "ready" || state.Preferences.Repository.SecretStorage.ItemID != "item-id" {
+		t.Fatalf("unexpected connected state: %#v", state)
+	}
+	if secrets.updated == nil || secrets.updated.Location != repositoryPath {
+		t.Fatalf("1Password metadata was not updated: %#v", secrets.updated)
 	}
 }
 

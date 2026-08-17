@@ -17,7 +17,7 @@ import {
     Trash2,
     Wrench,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
     isPackagedHost,
     requestNative,
@@ -232,17 +232,129 @@ function Setup({
     const [name, setName] = useState("My Backup")
     const [password, setPassword] = useState("")
     const [kind, setKind] = useState<"local" | "s3" | "sftp" | "rest">("local")
-    const [repositoryMode, setRepositoryMode] = useState<"create" | "open">(
-        "create",
-    )
     const [location, setLocation] = useState("")
     const [username, setUsername] = useState("")
     const [backendPassword, setBackendPassword] = useState("")
     const [accessKey, setAccessKey] = useState("")
     const [secretKey, setSecretKey] = useState("")
     const [region, setRegion] = useState("")
+    const [secretProvider, setSecretProvider] = useState<
+        "keychain" | "onepassword"
+    >("keychain")
+    const [onePasswordAccount, setOnePasswordAccount] = useState("")
+    const [onePasswordAccounts, setOnePasswordAccounts] = useState<
+        { id: string; name: string }[]
+    >([])
+    const [detectingAccounts, setDetectingAccounts] = useState(false)
+    const [manualAccount, setManualAccount] = useState(false)
+    const [onePasswordVaultID, setOnePasswordVaultID] = useState("")
+    const [onePasswordVaults, setOnePasswordVaults] = useState<
+        { id: string; title: string }[]
+    >([])
+    const [onePasswordItems, setOnePasswordItems] = useState<
+        {
+            id: string
+            title: string
+            kind?: "local" | "s3" | "sftp" | "rest"
+            location?: string
+        }[]
+    >([])
+    const [onePasswordItemID, setOnePasswordItemID] = useState("")
+    const [loadingVaults, setLoadingVaults] = useState(false)
+    const onePasswordRequestGeneration = useRef(0)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
+
+    const clearOnePasswordItems = () => {
+        onePasswordRequestGeneration.current += 1
+        setOnePasswordItems([])
+        setOnePasswordItemID("")
+    }
+
+    const clearOnePasswordSelections = () => {
+        clearOnePasswordItems()
+        setOnePasswordVaults([])
+        setOnePasswordVaultID("")
+    }
+
+    const discoverOnePasswordAccounts = async () => {
+        setDetectingAccounts(true)
+        try {
+            const accounts = await requestNative<
+                { id: string; name: string }[]
+            >("onepassword.accounts")
+            setOnePasswordAccounts(accounts)
+            if (accounts.length > 0) {
+                setOnePasswordAccount(accounts[0].id)
+            } else {
+                setManualAccount(true)
+            }
+        } catch {
+            setManualAccount(true)
+        } finally {
+            setDetectingAccounts(false)
+        }
+    }
+
+    const loadOnePasswordVaults = async () => {
+        const generation = onePasswordRequestGeneration.current
+        setLoadingVaults(true)
+        try {
+            const vaults = await requestNative<{ id: string; title: string }[]>(
+                "onepassword.vaults",
+                { account: onePasswordAccount },
+            )
+            if (generation !== onePasswordRequestGeneration.current) return
+            setOnePasswordVaults(vaults)
+            setOnePasswordVaultID(vaults[0]?.id ?? "")
+            setOnePasswordItems([])
+            setOnePasswordItemID("")
+            setError(undefined)
+        } catch (requestError) {
+            if (generation !== onePasswordRequestGeneration.current) return
+            setError(message(requestError))
+        } finally {
+            if (generation === onePasswordRequestGeneration.current) {
+                setLoadingVaults(false)
+            }
+        }
+    }
+
+    const loadOnePasswordItems = async () => {
+        const generation = onePasswordRequestGeneration.current
+        setLoadingVaults(true)
+        try {
+            const items = await requestNative<
+                {
+                    id: string
+                    title: string
+                    kind?: "local" | "s3" | "sftp" | "rest"
+                    location?: string
+                }[]
+            >("onepassword.items", {
+                account: onePasswordAccount,
+                vaultID: onePasswordVaultID,
+            })
+            if (generation !== onePasswordRequestGeneration.current) return
+            setOnePasswordItems(items)
+            setOnePasswordItemID("")
+            setError(
+                items.length === 0
+                    ? "No Snapshotter items were found in this vault."
+                    : undefined,
+            )
+        } catch (requestError) {
+            if (generation !== onePasswordRequestGeneration.current) return
+            setError(message(requestError))
+        } finally {
+            if (generation === onePasswordRequestGeneration.current) {
+                setLoadingVaults(false)
+            }
+        }
+    }
+
+    const usesExistingOnePasswordItem =
+        secretProvider === "onepassword" && onePasswordItemID !== ""
 
     const create = async () => {
         setBusy(true)
@@ -250,12 +362,8 @@ function Setup({
             onComplete(
                 await requestNative<ApplicationState>(
                     kind === "local"
-                        ? repositoryMode === "create"
-                            ? "repository.create.choose"
-                            : "repository.open.choose"
-                        : repositoryMode === "create"
-                          ? "repository.create.remote"
-                          : "repository.open.remote",
+                        ? "repository.configure.choose"
+                        : "repository.configure.remote",
                     {
                         name,
                         password,
@@ -268,6 +376,15 @@ function Setup({
                             secretKey,
                             region,
                         },
+                        secretStorage:
+                            secretProvider === "onepassword"
+                                ? {
+                                      provider: "onepassword",
+                                      account: onePasswordAccount,
+                                      vaultID: onePasswordVaultID,
+                                      itemID: onePasswordItemID || undefined,
+                                  }
+                                : undefined,
                     },
                 ),
             )
@@ -285,25 +402,180 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
-            <fieldset
-                className="repository-mode"
-                aria-label="Repository action"
-            >
+            <fieldset className="repository-mode" aria-label="Secret storage">
                 <button
                     type="button"
-                    className={repositoryMode === "create" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("create")}
+                    className={secretProvider === "keychain" ? "selected" : ""}
+                    onClick={() => setSecretProvider("keychain")}
                 >
-                    New repository
+                    Keychain
                 </button>
                 <button
                     type="button"
-                    className={repositoryMode === "open" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("open")}
+                    className={
+                        secretProvider === "onepassword" ? "selected" : ""
+                    }
+                    onClick={() => {
+                        setSecretProvider("onepassword")
+                        if (!onePasswordAccount && !detectingAccounts) {
+                            void discoverOnePasswordAccounts()
+                        }
+                    }}
                 >
-                    Open existing
+                    1Password
                 </button>
             </fieldset>
+            {secretProvider === "onepassword" && (
+                <div className="onepassword-storage">
+                    {detectingAccounts && (
+                        <small className="setup-hint">
+                            Detecting 1Password accounts…
+                        </small>
+                    )}
+                    {!detectingAccounts &&
+                        !manualAccount &&
+                        onePasswordAccounts.length > 0 && (
+                            <label>
+                                1Password account
+                                <select
+                                    value={onePasswordAccount}
+                                    onChange={(event) => {
+                                        clearOnePasswordSelections()
+                                        setOnePasswordAccount(
+                                            event.target.value,
+                                        )
+                                    }}
+                                >
+                                    {onePasswordAccounts.map((account) => (
+                                        <option
+                                            key={account.id}
+                                            value={account.id}
+                                        >
+                                            {account.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+                    {!detectingAccounts && manualAccount && (
+                        <label>
+                            1Password account
+                            <input
+                                value={onePasswordAccount}
+                                placeholder="Account name or ID"
+                                onChange={(event) => {
+                                    clearOnePasswordSelections()
+                                    setOnePasswordAccount(event.target.value)
+                                }}
+                                spellCheck={false}
+                            />
+                        </label>
+                    )}
+                    {!detectingAccounts && (
+                        <div className="onepassword-actions">
+                            {onePasswordAccounts.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() => {
+                                        clearOnePasswordSelections()
+                                        setManualAccount((manual) => !manual)
+                                        setOnePasswordAccount(
+                                            manualAccount
+                                                ? onePasswordAccounts[0].id
+                                                : "",
+                                        )
+                                    }}
+                                >
+                                    {manualAccount
+                                        ? "Use detected account"
+                                        : "Enter manually"}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={
+                                    !onePasswordAccount.trim() || loadingVaults
+                                }
+                                onClick={() => void loadOnePasswordVaults()}
+                            >
+                                {loadingVaults ? "Connecting…" : "Load vaults"}
+                            </button>
+                        </div>
+                    )}
+                    {onePasswordVaults.length > 0 && (
+                        <label>
+                            Vault
+                            <select
+                                value={onePasswordVaultID}
+                                onChange={(event) => {
+                                    clearOnePasswordItems()
+                                    setOnePasswordVaultID(event.target.value)
+                                }}
+                            >
+                                {onePasswordVaults.map((vault) => (
+                                    <option key={vault.id} value={vault.id}>
+                                        {vault.title}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    {onePasswordVaultID && (
+                        <>
+                            <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={loadingVaults}
+                                onClick={() => void loadOnePasswordItems()}
+                            >
+                                {loadingVaults
+                                    ? "Loading…"
+                                    : "Use synced secrets…"}
+                            </button>
+                            {onePasswordItems.length > 0 && (
+                                <label>
+                                    Snapshotter item
+                                    <select
+                                        value={onePasswordItemID}
+                                        onChange={(event) => {
+                                            const item = onePasswordItems.find(
+                                                (candidate) =>
+                                                    candidate.id ===
+                                                    event.target.value,
+                                            )
+                                            setOnePasswordItemID(
+                                                event.target.value,
+                                            )
+                                            if (!item) return
+                                            setName(item.title)
+                                            setKind(item.kind ?? "local")
+                                            setLocation(item.location ?? "")
+                                        }}
+                                    >
+                                        <option value="">
+                                            Use entered password
+                                        </option>
+                                        {onePasswordItems.map((item) => (
+                                            <option
+                                                key={item.id}
+                                                value={item.id}
+                                            >
+                                                {item.title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                        </>
+                    )}
+                    <small className="setup-hint">
+                        Requires the 1Password desktop app. Authorization uses
+                        Touch ID when enabled in 1Password.
+                    </small>
+                </div>
+            )}
             <fieldset
                 className="destination-kind"
                 aria-label="Destination type"
@@ -327,10 +599,12 @@ function Setup({
                 />
             </label>
             <label>
-                Password
+                Password{" "}
+                {usesExistingOnePasswordItem && <small>From 1Password</small>}
                 <input
                     type="password"
                     value={password}
+                    disabled={usesExistingOnePasswordItem}
                     onChange={(event) => setPassword(event.target.value)}
                 />
             </label>
@@ -345,12 +619,19 @@ function Setup({
                     />
                 </label>
             )}
+            {kind === "local" && usesExistingOnePasswordItem && location && (
+                <label>
+                    Saved destination
+                    <input value={location} disabled />
+                </label>
+            )}
             {kind === "s3" && (
                 <div className="remote-credentials">
                     <label>
                         Access key
                         <input
                             value={accessKey}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setAccessKey(event.target.value)
                             }
@@ -362,6 +643,7 @@ function Setup({
                         <input
                             type="password"
                             value={secretKey}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setSecretKey(event.target.value)
                             }
@@ -372,6 +654,7 @@ function Setup({
                         Region <small>Optional</small>
                         <input
                             value={region}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) => setRegion(event.target.value)}
                             placeholder="us-east-1"
                         />
@@ -384,6 +667,7 @@ function Setup({
                         Username <small>Optional</small>
                         <input
                             value={username}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setUsername(event.target.value)
                             }
@@ -395,6 +679,7 @@ function Setup({
                         <input
                             type="password"
                             value={backendPassword}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setBackendPassword(event.target.value)
                             }
@@ -414,23 +699,19 @@ function Setup({
                 className="primary-button setup-button"
                 disabled={
                     !name ||
-                    !password ||
+                    (!password && !usesExistingOnePasswordItem) ||
                     busy ||
+                    (secretProvider === "onepassword" &&
+                        (!onePasswordAccount.trim() || !onePasswordVaultID)) ||
                     (kind !== "local" && !location)
                 }
                 onClick={create}
             >
                 {busy
-                    ? repositoryMode === "create"
-                        ? "Creating…"
-                        : "Opening…"
+                    ? "Configuring…"
                     : kind === "local"
-                      ? repositoryMode === "create"
-                          ? "Choose destination…"
-                          : "Choose repository…"
-                      : repositoryMode === "create"
-                        ? "Create repository"
-                        : "Open repository"}
+                      ? "Choose destination…"
+                      : "Continue"}
             </button>
         </section>
     )
@@ -451,6 +732,7 @@ function Locked({
             onComplete(
                 await requestNative<ApplicationState>("repository.unlock", {
                     repositoryID: state.preferences.repository?.id,
+                    secretStorage: state.preferences.repository?.secretStorage,
                 }),
             )
         } catch (requestError) {
@@ -1239,6 +1521,7 @@ function Settings({
             onState(
                 await requestNative<ApplicationState>("repository.disconnect", {
                     repositoryID,
+                    secretStorage: preferences.repository?.secretStorage,
                 }),
             )
         } catch (error) {

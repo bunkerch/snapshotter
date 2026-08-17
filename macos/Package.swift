@@ -14,6 +14,7 @@ let package = Package(
                 .linkedFramework("WebKit"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("Security"),
+                .linkedLibrary("sqlite3"),
             ]
         )
     ]
