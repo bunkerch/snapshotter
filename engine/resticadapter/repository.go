@@ -2,6 +2,8 @@ package resticadapter
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -31,6 +33,8 @@ import (
 	"github.com/restic/restic/internal/restorer"
 	"github.com/restic/restic/internal/ui/progress"
 )
+
+const backupMetadataTagPrefix = "snapshotter:metadata:v1:"
 
 var ErrRepositoryOpen = errors.New("a repository is already open")
 
@@ -270,7 +274,7 @@ func (r *Repository) ID() (string, bool) {
 	return r.repo.Config().ID, true
 }
 
-func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclusions []domain.Exclusion, sink service.ProgressSink) (domain.Snapshot, error) {
+func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclusions []domain.Exclusion, metadata domain.BackupMetadata, sink service.ProgressSink) (domain.Snapshot, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.ensureOpen(ctx); err != nil {
@@ -286,6 +290,11 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 	if len(targets) == 0 {
 		return domain.Snapshot{}, errors.New("at least one backup source must be enabled")
 	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return domain.Snapshot{}, fmt.Errorf("encode backup metadata: %w", err)
+	}
+	metadataTag := backupMetadataTagPrefix + base64.RawURLEncoding.EncodeToString(encodedMetadata)
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return domain.Snapshot{}, fmt.Errorf("load repository index: %w", err)
 	}
@@ -325,6 +334,7 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 		Time:           started,
 		Hostname:       hostname,
 		ProgramVersion: "Snapshotter",
+		Tags:           []string{metadataTag},
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -341,7 +351,7 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 		Time:     snapshot.Time,
 		Hostname: snapshot.Hostname,
 		Paths:    append([]string(nil), snapshot.Paths...),
-		Tags:     append([]string(nil), snapshot.Tags...),
+		Tags:     publicSnapshotTags(snapshot.Tags),
 	}
 	if snapshot.Summary != nil {
 		result.FileCount = uint64(snapshot.Summary.TotalFilesProcessed)
@@ -367,7 +377,7 @@ func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
 			Time:     snapshot.Time,
 			Hostname: snapshot.Hostname,
 			Paths:    append([]string(nil), snapshot.Paths...),
-			Tags:     append([]string(nil), snapshot.Tags...),
+			Tags:     publicSnapshotTags(snapshot.Tags),
 		}
 		if snapshot.Summary != nil {
 			item.FileCount = uint64(snapshot.Summary.TotalFilesProcessed)
@@ -596,6 +606,46 @@ func (r *Repository) List(ctx context.Context, snapshotID, directory string) ([]
 		return entries[i].Type == string(data.NodeTypeDir)
 	})
 	return entries, nil
+}
+
+func (r *Repository) BackupMetadata(ctx context.Context, snapshotID string) (domain.BackupMetadata, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.ensureOpen(ctx); err != nil {
+		return domain.BackupMetadata{}, err
+	}
+	snapshot, err := r.loadSnapshot(ctx, snapshotID)
+	if err != nil {
+		return domain.BackupMetadata{}, err
+	}
+	for _, tag := range snapshot.Tags {
+		if !strings.HasPrefix(tag, backupMetadataTagPrefix) {
+			continue
+		}
+		encoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(tag, backupMetadataTagPrefix))
+		if err != nil {
+			return domain.BackupMetadata{}, fmt.Errorf("decode backup metadata tag: %w", err)
+		}
+		var metadata domain.BackupMetadata
+		if err := json.Unmarshal(encoded, &metadata); err != nil {
+			return domain.BackupMetadata{}, fmt.Errorf("decode backup metadata: %w", err)
+		}
+		if metadata.Version != 1 {
+			return domain.BackupMetadata{}, fmt.Errorf("backup metadata version %d is not supported", metadata.Version)
+		}
+		return metadata, nil
+	}
+	return domain.BackupMetadata{}, errors.New("snapshot does not contain Snapshotter backup metadata")
+}
+
+func publicSnapshotTags(tags []string) []string {
+	public := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, backupMetadataTagPrefix) {
+			public = append(public, tag)
+		}
+	}
+	return public
 }
 
 func (r *Repository) Restore(ctx context.Context, snapshotID, selectedPath, destination string) (uint64, error) {

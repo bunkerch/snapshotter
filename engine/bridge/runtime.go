@@ -62,6 +62,10 @@ type request struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+type backupInput struct {
+	ApplicationKeychainItems map[string][]domain.BackupKeychainItem `json:"applicationKeychainItems"`
+}
+
 type response struct {
 	OK    bool        `json:"ok"`
 	Data  interface{} `json:"data,omitempty"`
@@ -120,11 +124,15 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 	case "onepassword.items":
 		data, err = r.onePasswordItems(ctx, req.Payload)
 	case "backup.start":
-		data, err = r.backup(ctx)
+		data, err = r.backup(ctx, req.Payload)
+	case "backup.requirements":
+		data, err = r.backupRequirements()
 	case "schedule.set":
 		data, err = r.setSchedule(req.Payload)
 	case "schedule.tick":
-		data, err = r.scheduleTick(ctx, time.Now())
+		data, err = r.scheduleTick(ctx, req.Payload, time.Now())
+	case "schedule.due":
+		_, data, err = r.scheduledBackupState(ctx, time.Now())
 	case "retention.set":
 		data, err = r.setRetention(req.Payload)
 	case "launchAtLogin.set":
@@ -135,6 +143,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.repairRepositoryIndex(ctx)
 	case "snapshot.list":
 		data, err = r.listSnapshot(ctx, req.Payload)
+	case "snapshot.metadata":
+		data, err = r.snapshotMetadata(ctx, req.Payload)
 	case "snapshot.restore":
 		data, err = r.restoreSnapshot(ctx, req.Payload)
 	case "snapshot.delete":
@@ -146,6 +156,16 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		return failed(err)
 	}
 	return response{OK: true, Data: data}
+}
+
+func (r *runtime) snapshotMetadata(ctx context.Context, payload json.RawMessage) (domain.BackupMetadata, error) {
+	var input struct {
+		SnapshotID string `json:"snapshotID"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return domain.BackupMetadata{}, fmt.Errorf("decode snapshot metadata request: %w", err)
+	}
+	return r.repository.BackupMetadata(ctx, input.SnapshotID)
 }
 
 func (r *runtime) disconnectRepository(ctx context.Context) (applicationState, error) {
@@ -314,17 +334,22 @@ func (r *runtime) setSchedule(payload json.RawMessage) (applicationState, error)
 	return r.state(context.Background())
 }
 
-func (r *runtime) scheduleTick(ctx context.Context, now time.Time) (applicationState, error) {
-	state, err := r.state(ctx)
-	if err != nil || state.Status != "ready" || (len(state.Preferences.Sources) == 0 && len(state.Preferences.SelectedApps) == 0) {
-		return state, err
-	}
-	lastBackup := mostRecentBackup(state.Snapshots, r.lastBackupCancellation)
-	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
+func (r *runtime) scheduleTick(ctx context.Context, payload json.RawMessage, now time.Time) (applicationState, error) {
+	state, due, err := r.scheduledBackupState(ctx, now)
 	if err != nil || !due {
 		return state, err
 	}
-	return r.backup(ctx)
+	return r.backup(ctx, payload)
+}
+
+func (r *runtime) scheduledBackupState(ctx context.Context, now time.Time) (applicationState, bool, error) {
+	state, err := r.state(ctx)
+	if err != nil || state.Status != "ready" || (len(state.Preferences.Sources) == 0 && len(state.Preferences.SelectedApps) == 0) {
+		return state, false, err
+	}
+	lastBackup := mostRecentBackup(state.Snapshots, r.lastBackupCancellation)
+	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
+	return state, due, err
 }
 
 func mostRecentBackup(snapshots []domain.Snapshot, cancellation time.Time) time.Time {
@@ -688,7 +713,29 @@ func (r *runtime) archiveCreatedItem(ctx context.Context, storage *domain.Secret
 	_ = r.onePassword.Archive(ctx, *storage)
 }
 
-func (r *runtime) backup(ctx context.Context) (applicationState, error) {
+func (r *runtime) backupRequirements() ([]domain.BackupApplication, error) {
+	preferences, err := r.store.Load()
+	if err != nil {
+		return nil, err
+	}
+	presets, err := applicationPresets(preferences.SelectedApps)
+	if err != nil {
+		return nil, err
+	}
+	applicationSources, err := presetSources(preferences.SelectedApps)
+	if err != nil {
+		return nil, err
+	}
+	return backupMetadata(preferences, presets, applicationSources, nil, time.Time{}).Applications, nil
+}
+
+func (r *runtime) backup(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+	var input backupInput
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return applicationState{}, fmt.Errorf("decode backup input: %w", err)
+		}
+	}
 	preferences, err := r.store.Load()
 	if err != nil {
 		return applicationState{}, err
@@ -699,6 +746,10 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 	}
 	defer done()
 	r.setBackupProgress(service.Progress{Phase: "backing-up"})
+	presets, err := applicationPresets(preferences.SelectedApps)
+	if err != nil {
+		return applicationState{}, fmt.Errorf("resolve application sources: %w", err)
+	}
 	applicationSources, err := presetSources(preferences.SelectedApps)
 	if err != nil {
 		return applicationState{}, fmt.Errorf("resolve application sources: %w", err)
@@ -710,7 +761,8 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 		}
 		r.setBackupProgress(progress)
 	}
-	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, backupProgress); err != nil {
+	metadata := backupMetadata(preferences, presets, applicationSources, input.ApplicationKeychainItems, time.Now())
+	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, metadata, backupProgress); err != nil {
 		r.setOperationErrorProgress(err)
 		return applicationState{}, err
 	}

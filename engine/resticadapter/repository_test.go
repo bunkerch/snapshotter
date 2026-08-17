@@ -118,21 +118,39 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	defer adapter.Close()
 
 	var progress []service.Progress
+	metadata := domain.BackupMetadata{
+		Version: 1,
+		Sources: []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}},
+		Applications: []domain.BackupApplication{{
+			ID: "chrome", Name: "Google Chrome", Paths: []string{sourcePath},
+			KeychainItems: []domain.BackupKeychainItem{{Service: "Chrome Safe Storage", Account: "Chrome", Value: "encrypted in repository"}},
+		}},
+	}
 	snapshot, err := adapter.Backup(context.Background(), []domain.Source{{
 		ID:      "source",
 		Path:    sourcePath,
 		Enabled: true,
-	}}, []domain.Exclusion{{ID: "node-modules", Pattern: "**/node_modules", Enabled: true}}, func(update service.Progress) {
+	}}, []domain.Exclusion{
+		{ID: "node-modules", Pattern: "**/node_modules", Enabled: true},
+		{ID: "json", Pattern: "**/*.json", Enabled: true},
+	}, metadata, func(update service.Progress) {
 		progress = append(progress, update)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.ID == "" || len(snapshot.Paths) != 1 || snapshot.Paths[0] != sourcePath {
+	if snapshot.ID == "" || len(snapshot.Paths) != 1 || snapshot.Paths[0] != sourcePath || len(snapshot.Tags) != 0 {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 	if len(progress) == 0 || progress[len(progress)-1].Phase != "complete" {
 		t.Fatalf("unexpected progress: %#v", progress)
+	}
+	loadedMetadata, err := adapter.BackupMetadata(context.Background(), snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedMetadata.Version != 1 || len(loadedMetadata.Applications) != 1 || loadedMetadata.Applications[0].ID != "chrome" || loadedMetadata.Applications[0].KeychainItems[0].Value != "encrypted in repository" {
+		t.Fatalf("unexpected loaded metadata: %#v", loadedMetadata)
 	}
 	snapshots, err := adapter.Snapshots(context.Background())
 	if err != nil {
@@ -181,7 +199,7 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourcePath, "hello.txt"), []byte("updated content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, nil); err != nil {
+	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, domain.BackupMetadata{Version: 1}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := adapter.Forget(context.Background(), domain.RetentionPolicy{Daily: 1}); err != nil {
@@ -237,14 +255,14 @@ func TestBackupCanRestartAfterCancellation(t *testing.T) {
 	defer adapter.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := adapter.Backup(ctx, []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, func(service.Progress) {
+	_, err := adapter.Backup(ctx, []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, domain.BackupMetadata{Version: 1}, func(service.Progress) {
 		cancel()
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled backup error = %v, want context.Canceled", err)
 	}
 
-	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, nil); err != nil {
+	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, domain.BackupMetadata{Version: 1}, nil); err != nil {
 		t.Fatalf("restart backup after cancellation: %v", err)
 	}
 }

@@ -142,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
         case "onepassword.accounts": Backend.shared.discoverOnePasswordAccounts(requestID: request.id, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
+        case "snapshot.metadata": Backend.shared.fail("Snapshot metadata is only available to the native restore flow", requestID: request.id, webView: message.webView)
         case "operation.cancel": Backend.shared.cancel(requestID: request.id, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
@@ -416,7 +417,10 @@ private final class Backend: @unchecked Sendable {
                 Self.setActivity(false)
                 self.endOperation()
             }
-            _ = try? self.engine.get().handle(#"{"type":"schedule.tick"}"#)
+            guard let due = try? self.engine.get().handle(#"{"type":"schedule.due"}"#),
+                  Self.responseBoolean(due) else { return }
+            guard let request = try? self.preparedBackupRequest(#"{"type":"backup.start"}"#) else { return }
+            _ = try? self.engine.get().handle(request)
         }
         timer.resume()
         scheduleTimer = timer
@@ -439,7 +443,8 @@ private final class Backend: @unchecked Sendable {
                 if cancellable { self.endOperation() }
             }
             do {
-                let response = try self.engine.get().handle(rawRequest)
+                let request = showsActivity ? try self.preparedBackupRequest(rawRequest) : rawRequest
+                let response = try self.engine.get().handle(request)
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
@@ -594,7 +599,26 @@ private final class Backend: @unchecked Sendable {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let request = String(data: data, encoding: .utf8) else { return }
-        handle(request, requestID: requestID, webView: webView)
+        let reference = WebViewReference(webView)
+        beginOperation()
+        queue.async {
+            defer { self.endOperation() }
+            do {
+                let metadataPayload: [String: Any] = ["type": "snapshot.metadata", "payload": ["snapshotID": snapshotID]]
+                let metadataData = try JSONSerialization.data(withJSONObject: metadataPayload)
+                guard let metadataRequest = String(data: metadataData, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
+                let metadataResponse = try? self.engine.get().handle(metadataRequest)
+                let response = try self.engine.get().handle(request)
+                if Self.isSuccessful(response),
+                   (destination as NSString).standardizingPath == "/",
+                   let metadataResponse {
+                    try self.restoreApplicationPasswords(from: metadataResponse, selectedPath: path)
+                }
+                Self.respond(response, requestID: requestID, reference: reference)
+            } catch {
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
+        }
     }
 
     func fail(_ message: String, requestID: String?, webView: WKWebView?) {
@@ -642,6 +666,69 @@ private final class Backend: @unchecked Sendable {
         guard let data = response.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         return object["ok"] as? Bool == true
+    }
+
+    private func preparedBackupRequest(_ rawRequest: String) throws -> String {
+        let requirementsResponse = try engine.get().handle(#"{"type":"backup.requirements"}"#)
+        guard let responseData = requirementsResponse.data(using: .utf8),
+              let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              response["ok"] as? Bool == true,
+              let applications = response["data"] as? [[String: Any]],
+              let requestData = rawRequest.data(using: .utf8),
+              var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            throw EngineBridgeError.invalidResponse
+        }
+        var captured: [String: [[String: String]]] = [:]
+        for application in applications {
+            guard let id = application["id"] as? String,
+                  let items = application["keychainItems"] as? [[String: Any]] else { continue }
+            for item in items {
+                guard let service = item["service"] as? String,
+                      let account = item["account"] as? String,
+                      let value = try? keychain.applicationPassword(service: service, account: account) else { continue }
+                captured[id, default: []].append(["service": service, "account": account, "value": value])
+            }
+        }
+        var payload = request["payload"] as? [String: Any] ?? [:]
+        payload["applicationKeychainItems"] = captured
+        request["payload"] = payload
+        let encoded = try JSONSerialization.data(withJSONObject: request)
+        guard let result = String(data: encoded, encoding: .utf8) else {
+            throw EngineBridgeError.invalidResponse
+        }
+        return result
+    }
+
+    private func restoreApplicationPasswords(from metadataResponse: String, selectedPath: String) throws {
+        guard let encoded = metadataResponse.data(using: .utf8),
+              let response = try JSONSerialization.jsonObject(with: encoded) as? [String: Any],
+              response["ok"] as? Bool == true,
+              let metadata = response["data"] as? [String: Any],
+              let applications = metadata["applications"] as? [[String: Any]] else { return }
+        let selected = (selectedPath as NSString).standardizingPath
+        for application in applications {
+            guard application["id"] as? String == "chrome",
+                  let paths = application["paths"] as? [String],
+                  paths.contains(where: { path in
+                      let applicationPath = (path as NSString).standardizingPath
+                      return selected == "/" || applicationPath == selected
+                          || applicationPath.hasPrefix(selected + "/")
+                          || selected.hasPrefix(applicationPath + "/")
+                  }),
+                  let items = application["keychainItems"] as? [[String: Any]] else { continue }
+            for item in items {
+                guard item["service"] as? String == "Chrome Safe Storage",
+                      item["account"] as? String == "Chrome",
+                      let value = item["value"] as? String else { continue }
+                try keychain.saveApplicationPassword(value, service: "Chrome Safe Storage", account: "Chrome")
+            }
+        }
+    }
+
+    private static func responseBoolean(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["ok"] as? Bool == true && object["data"] as? Bool == true
     }
 
     private static func cancelledOperation(_ response: String) -> Bool {
