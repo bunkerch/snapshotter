@@ -33,11 +33,12 @@ func (c *Coordinator) Start(parent context.Context) (context.Context, func(), er
 	}, nil
 }
 
-func (c *Coordinator) Cancel() {
+func (c *Coordinator) Cancel() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cancel != nil {
 		c.cancel()
-		c.cancel = nil
+		return true
 	}
+	return false
 }

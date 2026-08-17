@@ -52,6 +52,10 @@ func (r *runtime) setBackupProgress(progress service.Progress) {
 	r.progressMu.Unlock()
 }
 
+func (r *runtime) cancelOperation() bool {
+	return r.coordinator.Cancel()
+}
+
 type request struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -695,17 +699,43 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 		return applicationState{}, fmt.Errorf("resolve application sources: %w", err)
 	}
 	sources := append(append([]domain.Source{}, preferences.Sources...), applicationSources...)
-	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, r.setBackupProgress); err != nil {
-		r.setBackupProgress(service.Progress{Phase: "error"})
+	backupProgress := func(progress service.Progress) {
+		if progress.Phase == "complete" {
+			progress.Phase = "finalizing"
+		}
+		r.setBackupProgress(progress)
+	}
+	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, backupProgress); err != nil {
+		r.setOperationErrorProgress(err)
 		return applicationState{}, err
 	}
 	if err := r.repository.Forget(operationContext, preferences.Retention); err != nil {
+		r.setOperationErrorProgress(err)
 		return applicationState{}, fmt.Errorf("apply retention policy: %w", err)
 	}
-	return r.state(ctx)
+	state, err := r.state(operationContext)
+	if err != nil {
+		r.setOperationErrorProgress(err)
+		return applicationState{}, err
+	}
+	r.setBackupProgress(service.Progress{Phase: "complete", Fraction: 1})
+	return state, nil
 }
 
-func failed(err error) response { return response{OK: false, Error: err.Error()} }
+func (r *runtime) setOperationErrorProgress(err error) {
+	phase := "error"
+	if errors.Is(err, context.Canceled) {
+		phase = "cancelled"
+	}
+	r.setBackupProgress(service.Progress{Phase: phase})
+}
+
+func failed(err error) response {
+	if errors.Is(err, context.Canceled) {
+		return response{OK: false, Error: "Operation cancelled"}
+	}
+	return response{OK: false, Error: err.Error()}
+}
 
 func sourceID(path string) string {
 	sum := sha256.Sum256([]byte(path))

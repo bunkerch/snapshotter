@@ -54,6 +54,19 @@ func TestStateCollectionsEncodeAsArrays(t *testing.T) {
 	}
 }
 
+func TestCancellationHasDistinctProgressAndResponse(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	err := fmt.Errorf("stop backup: %w", context.Canceled)
+	runtime.setOperationErrorProgress(err)
+
+	if phase := runtime.backupProgress().Phase; phase != "cancelled" {
+		t.Fatalf("cancellation progress phase = %q, want cancelled", phase)
+	}
+	if result := failed(err); result.OK || result.Error != "Operation cancelled" {
+		t.Fatalf("unexpected cancellation response: %#v", result)
+	}
+}
+
 func TestExclusionsAndApplicationPresetsPersist(t *testing.T) {
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
 	initial := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))
