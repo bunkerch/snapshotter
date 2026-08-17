@@ -142,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
         case "onepassword.accounts": Backend.shared.discoverOnePasswordAccounts(requestID: request.id, webView: message.webView)
         case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
+        case "operation.cancel": Backend.shared.cancel(requestID: request.id, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
         case "launchAtLogin.set": setLaunchAtLogin(
             enabled: request.payload?.enabled == true,
@@ -394,10 +395,12 @@ private final class Backend: @unchecked Sendable {
     static let shared = Backend()
     private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
     private let progressQueue = DispatchQueue(label: "app.snapshotter.progress", qos: .utility)
+    private let operationLock = NSLock()
     private let keychain = KeychainStore()
     private let engine: Result<EngineBridge, Error>
     private let webViewReference = WebViewReference(nil)
     private var scheduleTimer: DispatchSourceTimer?
+    private var pendingOperations = 0
 
     private init() {
         engine = Result { try EngineBridge() }
@@ -405,11 +408,13 @@ private final class Backend: @unchecked Sendable {
         timer.schedule(deadline: .now() + 10, repeating: 60)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            self.beginOperation()
             Self.setActivity(true)
             let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
             defer {
                 progressTimer?.cancel()
                 Self.setActivity(false)
+                self.endOperation()
             }
             _ = try? self.engine.get().handle(#"{"type":"schedule.tick"}"#)
         }
@@ -423,12 +428,15 @@ private final class Backend: @unchecked Sendable {
             self.webViewReference.webView = webView
         }
         let showsActivity = Self.requestType(rawRequest).map { $0 == "backup.start" || $0 == "schedule.tick" } == true
+        let cancellable = Self.requestType(rawRequest).map(Self.isCancellable) == true
+        if cancellable { beginOperation() }
         queue.async {
             if showsActivity { Self.setActivity(true) }
             let progressTimer = showsActivity ? self.startProgressUpdates(reference: reference) : nil
             defer {
                 progressTimer?.cancel()
                 if showsActivity { Self.setActivity(false) }
+                if cancellable { self.endOperation() }
             }
             do {
                 let response = try self.engine.get().handle(rawRequest)
@@ -437,6 +445,46 @@ private final class Backend: @unchecked Sendable {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
             }
         }
+    }
+
+    func cancel(requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        progressQueue.async {
+            self.attemptCancel(requestID: requestID, reference: reference)
+        }
+    }
+
+    private func attemptCancel(requestID: String?, reference: WebViewReference) {
+        do {
+            let response = try engine.get().cancel()
+            if Self.cancelledOperation(response) || !hasPendingOperation() {
+                Self.respond(response, requestID: requestID, reference: reference)
+                return
+            }
+            progressQueue.asyncAfter(deadline: .now() + .milliseconds(10)) {
+                self.attemptCancel(requestID: requestID, reference: reference)
+            }
+        } catch {
+            Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+        }
+    }
+
+    private func beginOperation() {
+        operationLock.lock()
+        pendingOperations += 1
+        operationLock.unlock()
+    }
+
+    private func endOperation() {
+        operationLock.lock()
+        pendingOperations -= 1
+        operationLock.unlock()
+    }
+
+    private func hasPendingOperation() -> Bool {
+        operationLock.lock()
+        defer { operationLock.unlock() }
+        return pendingOperations > 0
     }
 
     private func startProgressUpdates(reference: WebViewReference) -> DispatchSourceTimer? {
@@ -596,10 +644,27 @@ private final class Backend: @unchecked Sendable {
         return object["ok"] as? Bool == true
     }
 
+    private static func cancelledOperation(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["ok"] as? Bool == true && object["data"] as? Bool == true
+    }
+
     private static func requestType(_ request: String) -> String? {
         guard let data = request.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object["type"] as? String
+    }
+
+    private static func isCancellable(_ requestType: String) -> Bool {
+        [
+            "backup.start",
+            "schedule.tick",
+            "repository.check",
+            "repository.repairIndex",
+            "snapshot.restore",
+            "snapshot.delete",
+        ].contains(requestType)
     }
 
     private static func setActivity(_ active: Bool) {

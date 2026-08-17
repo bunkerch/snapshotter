@@ -14,6 +14,7 @@ import {
     Search,
     Settings2,
     ShieldCheck,
+    Square,
     Trash2,
     Wrench,
 } from "lucide-react"
@@ -38,6 +39,7 @@ export function App() {
     const [error, setError] = useState<string>()
     const [running, setRunning] = useState(false)
     const [backupProgress, setBackupProgress] = useState<BackupProgress>()
+    const manualBackupRunning = useRef(false)
 
     const refresh = useCallback(async () => {
         try {
@@ -59,12 +61,18 @@ export function App() {
     useEffect(
         () =>
             subscribeToBackupProgress((progress) => {
-                if (progress.phase === "backing-up") setRunning(true)
+                if (
+                    progress.phase === "backing-up" ||
+                    progress.phase === "finalizing"
+                ) {
+                    setRunning(true)
+                }
                 if (
                     progress.phase === "complete" ||
+                    progress.phase === "cancelled" ||
                     progress.phase === "error"
                 ) {
-                    setRunning(false)
+                    if (!manualBackupRunning.current) setRunning(false)
                 }
                 setBackupProgress({
                     phase: progress.phase as BackupProgress["phase"],
@@ -76,6 +84,7 @@ export function App() {
     )
 
     const backupNow = async () => {
+        manualBackupRunning.current = true
         setRunning(true)
         setBackupProgress({ phase: "backing-up", filesDone: 0, bytesDone: 0 })
         try {
@@ -86,10 +95,22 @@ export function App() {
             )
             setError(undefined)
         } catch (requestError) {
-            setError(message(requestError))
+            const requestMessage = message(requestError)
+            if (requestMessage !== "Operation cancelled") {
+                setError(requestMessage)
+            }
         } finally {
+            manualBackupRunning.current = false
             setRunning(false)
             setBackupProgress(undefined)
+        }
+    }
+
+    const cancelBackup = async () => {
+        try {
+            await requestNative<boolean>("operation.cancel")
+        } catch (requestError) {
+            setError(message(requestError))
         }
     }
 
@@ -143,6 +164,7 @@ export function App() {
                         running={running}
                         progress={backupProgress}
                         onBackup={backupNow}
+                        onCancel={cancelBackup}
                         onAddSources={addSources}
                         onAddSourcePath={addSourcePath}
                         onSnapshots={() => setView("snapshots")}
@@ -770,6 +792,7 @@ function Overview({
     running,
     progress,
     onBackup,
+    onCancel,
     onAddSources,
     onAddSourcePath,
     onSnapshots,
@@ -779,6 +802,7 @@ function Overview({
     running: boolean
     progress?: BackupProgress
     onBackup: () => void
+    onCancel: () => void
     onAddSources: () => Promise<void>
     onAddSourcePath: (path: string) => Promise<void>
     onSnapshots: () => void
@@ -850,16 +874,20 @@ function Overview({
                 </div>
                 <button
                     type="button"
-                    className="primary-button"
-                    onClick={onBackup}
+                    className={running ? "cancel-button" : "primary-button"}
+                    onClick={running ? onCancel : onBackup}
                     disabled={
-                        running ||
-                        (state.preferences.sources.length === 0 &&
-                            state.preferences.selectedApps.length === 0)
+                        !running &&
+                        state.preferences.sources.length === 0 &&
+                        state.preferences.selectedApps.length === 0
                     }
                 >
-                    <Play size={13} fill="currentColor" />
-                    {running ? "Running" : "Back up"}
+                    {running ? (
+                        <Square size={11} fill="currentColor" />
+                    ) : (
+                        <Play size={13} fill="currentColor" />
+                    )}
+                    {running ? "Cancel" : "Back up"}
                 </button>
                 {running && (
                     <div className="progress">
@@ -1276,6 +1304,7 @@ function SnapshotBrowser({
     const [status, setStatus] = useState<string>()
     const [confirmDelete, setConfirmDelete] = useState(false)
     const [deleting, setDeleting] = useState(false)
+    const [restoring, setRestoring] = useState(false)
 
     useEffect(() => {
         let active = true
@@ -1302,6 +1331,7 @@ function SnapshotBrowser({
     const restore = async () => {
         const restorePath = selected?.path ?? path
         setStatus("Choose where to restore…")
+        setRestoring(true)
         try {
             const result = await requestNative<{ restoredFiles: number }>(
                 "snapshot.restore.choose",
@@ -1310,6 +1340,17 @@ function SnapshotBrowser({
             setStatus(
                 `Restored ${formatCount(result.restoredFiles)} ${result.restoredFiles === 1 ? "file" : "files"}`,
             )
+        } catch (error) {
+            setStatus(message(error))
+        } finally {
+            setRestoring(false)
+        }
+    }
+
+    const cancelOperation = async () => {
+        setStatus("Cancelling…")
+        try {
+            await requestNative<boolean>("operation.cancel")
         } catch (error) {
             setStatus(message(error))
         }
@@ -1350,12 +1391,18 @@ function SnapshotBrowser({
                 </div>
                 <button
                     type="button"
-                    className="primary-button"
-                    onClick={() => void restore()}
+                    className={restoring ? "cancel-button" : "primary-button"}
+                    onClick={() =>
+                        void (restoring ? cancelOperation() : restore())
+                    }
                     disabled={loading}
                 >
-                    <Download size={13} />
-                    Restore
+                    {restoring ? (
+                        <Square size={11} fill="currentColor" />
+                    ) : (
+                        <Download size={13} />
+                    )}
+                    {restoring ? "Cancel restore" : "Restore"}
                 </button>
             </div>
             {path !== "/" && (
@@ -1416,10 +1463,13 @@ function SnapshotBrowser({
                         <span>Delete this snapshot and reclaim its space?</span>
                         <button
                             type="button"
-                            onClick={() => setConfirmDelete(false)}
-                            disabled={deleting}
+                            onClick={() =>
+                                void (deleting
+                                    ? cancelOperation()
+                                    : setConfirmDelete(false))
+                            }
                         >
-                            Cancel
+                            {deleting ? "Cancel deletion" : "Cancel"}
                         </button>
                         <button
                             type="button"
@@ -1511,6 +1561,15 @@ function Settings({
             setCheckResult(message(error))
         } finally {
             setRepairing(false)
+        }
+    }
+
+    const cancelMaintenance = async () => {
+        setCheckResult("Cancelling…")
+        try {
+            await requestNative<boolean>("operation.cancel")
+        } catch (error) {
+            setCheckResult(message(error))
         }
     }
 
@@ -1733,13 +1792,19 @@ function Settings({
             <button
                 type="button"
                 className="setting-row"
-                onClick={() => void checkRepository()}
-                disabled={checking}
+                onClick={() =>
+                    void (checking ? cancelMaintenance() : checkRepository())
+                }
+                disabled={repairing}
             >
-                <Wrench size={17} />
+                {checking ? (
+                    <Square size={15} fill="currentColor" />
+                ) : (
+                    <Wrench size={17} />
+                )}
                 <span>
                     <strong>
-                        {checking ? "Checking…" : "Check repository"}
+                        {checking ? "Cancel check" : "Check repository"}
                     </strong>
                     {checkResult && <small>{checkResult}</small>}
                 </span>
@@ -1747,13 +1812,21 @@ function Settings({
             <button
                 type="button"
                 className="setting-row"
-                onClick={() => void repairRepositoryIndex()}
-                disabled={checking || repairing}
+                onClick={() =>
+                    void (repairing
+                        ? cancelMaintenance()
+                        : repairRepositoryIndex())
+                }
+                disabled={checking}
             >
-                <Wrench size={17} />
+                {repairing ? (
+                    <Square size={15} fill="currentColor" />
+                ) : (
+                    <Wrench size={17} />
+                )}
                 <span>
                     <strong>
-                        {repairing ? "Repairing index…" : "Repair index"}
+                        {repairing ? "Cancel repair" : "Repair index"}
                     </strong>
                     <small>Rebuild repository metadata from stored packs</small>
                 </span>

@@ -22,12 +22,14 @@ final class EngineBridge: @unchecked Sendable {
     private typealias OpenFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias HandleFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias ProgressFunction = @convention(c) () -> UnsafeMutablePointer<CChar>?
+    private typealias CancelFunction = @convention(c) () -> UnsafeMutablePointer<CChar>?
     private typealias CloseFunction = @convention(c) () -> Void
     private typealias FreeFunction = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
     private let library: UnsafeMutableRawPointer
     private let handleRequest: HandleFunction
     private let readProgress: ProgressFunction
+    private let cancelOperation: CancelFunction
     private let closeEngine: CloseFunction
     private let freeResponse: FreeFunction
 
@@ -41,6 +43,7 @@ final class EngineBridge: @unchecked Sendable {
         let openEngine: OpenFunction = try Self.loadSymbol("SnapshotterOpen", from: library)
         handleRequest = try Self.loadSymbol("SnapshotterHandle", from: library)
         readProgress = try Self.loadSymbol("SnapshotterProgress", from: library)
+        cancelOperation = try Self.loadSymbol("SnapshotterCancel", from: library)
         closeEngine = try Self.loadSymbol("SnapshotterClose", from: library)
         freeResponse = try Self.loadSymbol("SnapshotterFree", from: library)
 
@@ -66,6 +69,10 @@ final class EngineBridge: @unchecked Sendable {
 
     func progress() throws -> String {
         try consume(readProgress())
+    }
+
+    func cancel() throws -> String {
+        try consume(cancelOperation())
     }
 
     private func consume(_ pointer: UnsafeMutablePointer<CChar>?) throws -> String {

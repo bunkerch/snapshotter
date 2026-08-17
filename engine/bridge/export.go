@@ -41,6 +41,15 @@ func SnapshotterProgress() *C.char {
 	return C.CString(string(encoded))
 }
 
+//export SnapshotterCancel
+func SnapshotterCancel() *C.char {
+	runtime := progressRuntime.Load()
+	if runtime == nil {
+		return encodeResponse(response{OK: true, Data: false})
+	}
+	return encodeResponse(response{OK: true, Data: runtime.cancelOperation()})
+}
+
 //export SnapshotterHandle
 func SnapshotterHandle(rawRequest *C.char) *C.char {
 	bridgeMu.Lock()

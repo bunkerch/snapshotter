@@ -89,7 +89,13 @@ export interface ApplicationState {
 }
 
 export interface BackupProgress {
-    phase: "idle" | "backing-up" | "complete" | "error"
+    phase:
+        | "idle"
+        | "backing-up"
+        | "finalizing"
+        | "complete"
+        | "cancelled"
+        | "error"
     filesDone: number
     bytesDone: number
 }

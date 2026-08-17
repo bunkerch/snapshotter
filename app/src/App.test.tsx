@@ -467,4 +467,22 @@ describe("Snapshotter app", () => {
         expect(await screen.findByText("42 files · 2.0 KB")).toBeTruthy()
         expect(screen.queryByText(/%/)).toBeNull()
     })
+
+    it("cancels an active backup", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+
+        act(() => {
+            nativeProgress.listener?.({
+                phase: "backing-up",
+                filesDone: 1,
+                bytesDone: 1024,
+            })
+        })
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("operation.cancel")
+        })
+    })
 })

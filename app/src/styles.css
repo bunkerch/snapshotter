@@ -192,7 +192,8 @@ footer {
 }
 
 .primary-button,
-.secondary-button {
+.secondary-button,
+.cancel-button {
     display: flex;
     align-items: center;
     gap: 5px;
@@ -203,6 +204,15 @@ footer {
     background: var(--accent);
     font-size: 10px;
     font-weight: 600;
+}
+
+.cancel-button {
+    color: light-dark(#d70015, #ff6961);
+    background: light-dark(rgb(255 59 48 / 9%), rgb(255 69 58 / 14%));
+}
+
+.cancel-button:hover {
+    background: light-dark(rgb(255 59 48 / 15%), rgb(255 69 58 / 22%));
 }
 
 .primary-button:active {

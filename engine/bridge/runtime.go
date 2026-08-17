@@ -22,13 +22,14 @@ import (
 )
 
 type runtime struct {
-	mu          sync.Mutex
-	progressMu  sync.RWMutex
-	progress    service.Progress
-	store       *config.Store
-	repository  *resticadapter.Repository
-	onePassword secretStore
-	coordinator service.Coordinator
+	mu                     sync.Mutex
+	progressMu             sync.RWMutex
+	progress               service.Progress
+	store                  *config.Store
+	repository             *resticadapter.Repository
+	onePassword            secretStore
+	coordinator            service.Coordinator
+	lastBackupCancellation time.Time
 }
 
 type secretStore interface {
@@ -50,6 +51,10 @@ func (r *runtime) setBackupProgress(progress service.Progress) {
 	r.progressMu.Lock()
 	r.progress = progress
 	r.progressMu.Unlock()
+}
+
+func (r *runtime) cancelOperation() bool {
+	return r.coordinator.Cancel()
 }
 
 type request struct {
@@ -314,15 +319,19 @@ func (r *runtime) scheduleTick(ctx context.Context, now time.Time) (applicationS
 	if err != nil || state.Status != "ready" || (len(state.Preferences.Sources) == 0 && len(state.Preferences.SelectedApps) == 0) {
 		return state, err
 	}
-	var lastBackup time.Time
-	if len(state.Snapshots) > 0 {
-		lastBackup = state.Snapshots[0].Time
-	}
+	lastBackup := mostRecentBackup(state.Snapshots, r.lastBackupCancellation)
 	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
 	if err != nil || !due {
 		return state, err
 	}
 	return r.backup(ctx)
+}
+
+func mostRecentBackup(snapshots []domain.Snapshot, cancellation time.Time) time.Time {
+	if len(snapshots) > 0 && snapshots[0].Time.After(cancellation) {
+		return snapshots[0].Time
+	}
+	return cancellation
 }
 
 func (r *runtime) state(ctx context.Context) (applicationState, error) {
@@ -695,17 +704,44 @@ func (r *runtime) backup(ctx context.Context) (applicationState, error) {
 		return applicationState{}, fmt.Errorf("resolve application sources: %w", err)
 	}
 	sources := append(append([]domain.Source{}, preferences.Sources...), applicationSources...)
-	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, r.setBackupProgress); err != nil {
-		r.setBackupProgress(service.Progress{Phase: "error"})
+	backupProgress := func(progress service.Progress) {
+		if progress.Phase == "complete" {
+			progress.Phase = "finalizing"
+		}
+		r.setBackupProgress(progress)
+	}
+	if _, err := r.repository.Backup(operationContext, sources, preferences.Exclusions, backupProgress); err != nil {
+		r.setOperationErrorProgress(err)
 		return applicationState{}, err
 	}
 	if err := r.repository.Forget(operationContext, preferences.Retention); err != nil {
+		r.setOperationErrorProgress(err)
 		return applicationState{}, fmt.Errorf("apply retention policy: %w", err)
 	}
-	return r.state(ctx)
+	state, err := r.state(operationContext)
+	if err != nil {
+		r.setOperationErrorProgress(err)
+		return applicationState{}, err
+	}
+	r.setBackupProgress(service.Progress{Phase: "complete", Fraction: 1})
+	return state, nil
 }
 
-func failed(err error) response { return response{OK: false, Error: err.Error()} }
+func (r *runtime) setOperationErrorProgress(err error) {
+	phase := "error"
+	if errors.Is(err, context.Canceled) {
+		phase = "cancelled"
+		r.lastBackupCancellation = time.Now()
+	}
+	r.setBackupProgress(service.Progress{Phase: phase})
+}
+
+func failed(err error) response {
+	if errors.Is(err, context.Canceled) {
+		return response{OK: false, Error: "Operation cancelled"}
+	}
+	return response{OK: false, Error: err.Error()}
+}
 
 func sourceID(path string) string {
 	sum := sha256.Sum256([]byte(path))
