@@ -22,13 +22,14 @@ import (
 )
 
 type runtime struct {
-	mu          sync.Mutex
-	progressMu  sync.RWMutex
-	progress    service.Progress
-	store       *config.Store
-	repository  *resticadapter.Repository
-	onePassword secretStore
-	coordinator service.Coordinator
+	mu                     sync.Mutex
+	progressMu             sync.RWMutex
+	progress               service.Progress
+	store                  *config.Store
+	repository             *resticadapter.Repository
+	onePassword            secretStore
+	coordinator            service.Coordinator
+	lastBackupCancellation time.Time
 }
 
 type secretStore interface {
@@ -318,15 +319,19 @@ func (r *runtime) scheduleTick(ctx context.Context, now time.Time) (applicationS
 	if err != nil || state.Status != "ready" || (len(state.Preferences.Sources) == 0 && len(state.Preferences.SelectedApps) == 0) {
 		return state, err
 	}
-	var lastBackup time.Time
-	if len(state.Snapshots) > 0 {
-		lastBackup = state.Snapshots[0].Time
-	}
+	lastBackup := mostRecentBackup(state.Snapshots, r.lastBackupCancellation)
 	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
 	if err != nil || !due {
 		return state, err
 	}
 	return r.backup(ctx)
+}
+
+func mostRecentBackup(snapshots []domain.Snapshot, cancellation time.Time) time.Time {
+	if len(snapshots) > 0 && snapshots[0].Time.After(cancellation) {
+		return snapshots[0].Time
+	}
+	return cancellation
 }
 
 func (r *runtime) state(ctx context.Context) (applicationState, error) {
@@ -726,6 +731,7 @@ func (r *runtime) setOperationErrorProgress(err error) {
 	phase := "error"
 	if errors.Is(err, context.Canceled) {
 		phase = "cancelled"
+		r.lastBackupCancellation = time.Now()
 	}
 	r.setBackupProgress(service.Progress{Phase: phase})
 }

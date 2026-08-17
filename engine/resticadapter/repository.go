@@ -35,8 +35,12 @@ import (
 var ErrRepositoryOpen = errors.New("a repository is already open")
 
 type Repository struct {
-	mu   sync.Mutex
-	repo *repository.Repository
+	mu           sync.Mutex
+	repo         *repository.Repository
+	configured   *domain.Repository
+	credentials  domain.RepositoryCredentials
+	password     []byte
+	repositoryID string
 }
 
 func (r *Repository) Configure(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) (bool, error) {
@@ -46,7 +50,7 @@ func (r *Repository) Configure(ctx context.Context, configured domain.Repository
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo != nil {
+	if r.configured != nil {
 		return false, ErrRepositoryOpen
 	}
 
@@ -66,6 +70,7 @@ func (r *Repository) Configure(ctx context.Context, configured domain.Repository
 			return false, fmt.Errorf("unlock repository: %w", err)
 		}
 		r.repo = repo
+		r.rememberConnection(configured, credentials, password)
 		return false, nil
 	}
 	if !backend.IsNotExist(configErr) && !isMissingS3Bucket(configured.Kind, configErr) {
@@ -90,6 +95,7 @@ func (r *Repository) Configure(ctx context.Context, configured domain.Repository
 		return false, fmt.Errorf("initialize repository: %w", err)
 	}
 	r.repo = repo
+	r.rememberConnection(configured, credentials, password)
 	return true, nil
 }
 
@@ -108,7 +114,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo != nil {
+	if r.configured != nil {
 		return ErrRepositoryOpen
 	}
 
@@ -126,6 +132,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 		return fmt.Errorf("initialize repository: %w", err)
 	}
 	r.repo = repo
+	r.rememberConnection(configured, credentials, password)
 	return nil
 }
 
@@ -136,7 +143,7 @@ func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, c
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo != nil {
+	if r.configured != nil {
 		return ErrRepositoryOpen
 	}
 
@@ -154,7 +161,47 @@ func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, c
 		return fmt.Errorf("unlock repository: %w", err)
 	}
 	r.repo = repo
+	r.rememberConnection(configured, credentials, password)
 	return nil
+}
+
+func (r *Repository) rememberConnection(configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) {
+	r.configured = &configured
+	r.credentials = credentials
+	clear(r.password)
+	r.password = append([]byte(nil), password...)
+	r.repositoryID = r.repo.Config().ID
+}
+
+func (r *Repository) ensureOpen(ctx context.Context) error {
+	if r.repo != nil {
+		return nil
+	}
+	if r.configured == nil || len(r.password) == 0 {
+		return errors.New("repository is not open")
+	}
+	backend, err := openBackend(ctx, *r.configured, r.credentials, false)
+	if err != nil {
+		return fmt.Errorf("reopen backend: %w", err)
+	}
+	repo, err := repository.New(backend, repository.Options{})
+	if err != nil {
+		_ = backend.Close()
+		return fmt.Errorf("reopen repository: %w", err)
+	}
+	if err := repo.SearchKey(ctx, string(r.password), 0, ""); err != nil {
+		_ = repo.Close()
+		return fmt.Errorf("unlock reopened repository: %w", err)
+	}
+	r.repo = repo
+	return nil
+}
+
+func (r *Repository) discardOpenRepository() {
+	if r.repo != nil {
+		_ = r.repo.Close()
+		r.repo = nil
+	}
 }
 
 func openBackend(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, create bool) (backendpkg.Backend, error) {
@@ -218,7 +265,7 @@ func (r *Repository) ID() (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.repo == nil {
-		return "", false
+		return r.repositoryID, r.repositoryID != ""
 	}
 	return r.repo.Config().ID, true
 }
@@ -226,8 +273,8 @@ func (r *Repository) ID() (string, bool) {
 func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclusions []domain.Exclusion, sink service.ProgressSink) (domain.Snapshot, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return domain.Snapshot{}, errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return domain.Snapshot{}, err
 	}
 
 	targets := make([]string, 0, len(sources))
@@ -280,6 +327,9 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 		ProgramVersion: "Snapshotter",
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			r.discardOpenRepository()
+		}
 		return domain.Snapshot{}, fmt.Errorf("save snapshot: %w", err)
 	}
 	progress.Phase = "complete"
@@ -303,8 +353,8 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return nil, errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return nil, err
 	}
 
 	snapshots := make([]domain.Snapshot, 0)
@@ -338,8 +388,8 @@ func (r *Repository) Snapshots(ctx context.Context) ([]domain.Snapshot, error) {
 func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return err
 	}
 	emitProgress(sink, service.Progress{Phase: "checking-index"})
 	checker := r.repo.Checker()
@@ -365,8 +415,8 @@ func (r *Repository) Check(ctx context.Context, sink service.ProgressSink) error
 func (r *Repository) RepairIndex(ctx context.Context, sink service.ProgressSink) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return err
 	}
 	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
 	if err != nil {
@@ -384,8 +434,8 @@ func (r *Repository) RepairIndex(ctx context.Context, sink service.ProgressSink)
 func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return err
 	}
 	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
 	if err != nil {
@@ -433,8 +483,8 @@ func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) 
 func (r *Repository) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return err
 	}
 	id, err := restic.Find(ctx, r.repo, restic.SnapshotFile, snapshotID)
 	if err != nil {
@@ -485,8 +535,8 @@ func (r *Repository) pruneLocked(ctx context.Context) error {
 func (r *Repository) List(ctx context.Context, snapshotID, directory string) ([]domain.Entry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return nil, errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return nil, err
 	}
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return nil, fmt.Errorf("load repository index: %w", err)
@@ -551,8 +601,8 @@ func (r *Repository) List(ctx context.Context, snapshotID, directory string) ([]
 func (r *Repository) Restore(ctx context.Context, snapshotID, selectedPath, destination string) (uint64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.repo == nil {
-		return 0, errors.New("repository is not open")
+	if err := r.ensureOpen(ctx); err != nil {
+		return 0, err
 	}
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return 0, fmt.Errorf("load repository index: %w", err)
@@ -597,6 +647,13 @@ func (r *Repository) loadSnapshot(ctx context.Context, snapshotID string) (*data
 func (r *Repository) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer func() {
+		clear(r.password)
+		r.password = nil
+		r.credentials = domain.RepositoryCredentials{}
+		r.configured = nil
+		r.repositoryID = ""
+	}()
 	if r.repo == nil {
 		return nil
 	}

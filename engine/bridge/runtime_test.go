@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/onepasswordstore"
 	"github.com/restic/restic/app/resticadapter"
+	scheduler "github.com/restic/restic/app/schedule"
 )
 
 type fakeSecretStore struct {
@@ -64,6 +66,29 @@ func TestCancellationHasDistinctProgressAndResponse(t *testing.T) {
 	}
 	if result := failed(err); result.OK || result.Error != "Operation cancelled" {
 		t.Fatalf("unexpected cancellation response: %#v", result)
+	}
+}
+
+func TestCancelledBackupDefersScheduledRetry(t *testing.T) {
+	snapshotTime := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
+	cancelledAt := snapshotTime.Add(time.Hour)
+	snapshots := []domain.Snapshot{{Time: snapshotTime}}
+
+	if got := mostRecentBackup(snapshots, cancelledAt); !got.Equal(cancelledAt) {
+		t.Fatalf("most recent backup time = %v, want cancellation time %v", got, cancelledAt)
+	}
+	due, _, err := scheduler.Due(cancelledAt.Add(time.Minute), cancelledAt, domain.Schedule{
+		Enabled: true,
+		Kind:    domain.ScheduleDaily,
+		Hour:    9,
+	})
+	if err != nil || due {
+		t.Fatalf("schedule after cancellation: due=%v err=%v", due, err)
+	}
+	newerSnapshot := cancelledAt.Add(time.Hour)
+	snapshots[0].Time = newerSnapshot
+	if got := mostRecentBackup(snapshots, cancelledAt); !got.Equal(newerSnapshot) {
+		t.Fatalf("most recent backup time = %v, want snapshot time %v", got, newerSnapshot)
 	}
 }
 

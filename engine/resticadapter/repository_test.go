@@ -1,7 +1,10 @@
 package resticadapter
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,6 +213,39 @@ func TestBackupCreatesSnapshot(t *testing.T) {
 	}
 	if err := adapter.Check(context.Background(), nil); err != nil {
 		t.Fatalf("check repository after snapshot deletion: %v", err)
+	}
+}
+
+func TestBackupCanRestartAfterCancellation(t *testing.T) {
+	repositoryPath := filepath.Join(t.TempDir(), "repository")
+	sourcePath := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(sourcePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 20 {
+		name := filepath.Join(sourcePath, fmt.Sprintf("file-%02d", index))
+		if err := os.WriteFile(name, bytes.Repeat([]byte{byte(index)}, 1024*1024), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	configured := domain.Repository{ID: "test", Name: "Test Repository", Kind: domain.RepositoryLocal, Location: repositoryPath}
+	adapter := &Repository{}
+	if err := adapter.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("backup password")); err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := adapter.Backup(ctx, []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, func(service.Progress) {
+		cancel()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled backup error = %v, want context.Canceled", err)
+	}
+
+	if _, err := adapter.Backup(context.Background(), []domain.Source{{ID: "source", Path: sourcePath, Enabled: true}}, nil, nil); err != nil {
+		t.Fatalf("restart backup after cancellation: %v", err)
 	}
 }
 
