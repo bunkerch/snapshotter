@@ -231,6 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        if let savedLocation = request.payload?.location, !savedLocation.isEmpty,
+           FileManager.default.fileExists(atPath: savedLocation) {
+            panel.directoryURL = URL(fileURLWithPath: savedLocation, isDirectory: true)
+        }
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
             defer { self.openPopover() }

@@ -18,6 +18,7 @@ type fakeSecretStore struct {
 	credentials domain.RepositoryCredentials
 	password    string
 	archived    *domain.SecretStorage
+	updated     *domain.Repository
 }
 
 func (f *fakeSecretStore) Vaults(context.Context, string) ([]onepasswordstore.Vault, error) {
@@ -28,6 +29,10 @@ func (f *fakeSecretStore) Items(context.Context, string, string) ([]onepasswords
 }
 func (f *fakeSecretStore) Save(context.Context, domain.Repository, domain.RepositoryCredentials, string) (string, error) {
 	return "item-id", nil
+}
+func (f *fakeSecretStore) UpdateMetadata(_ context.Context, repository domain.Repository) error {
+	f.updated = &repository
+	return nil
 }
 func (f *fakeSecretStore) Load(context.Context, domain.SecretStorage) (domain.RepositoryCredentials, string, error) {
 	return f.credentials, f.password, nil
@@ -182,7 +187,8 @@ func TestConfigureExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
 	}
 
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
-	runtime.onePassword = &fakeSecretStore{password: "secret"}
+	secrets := &fakeSecretStore{password: "secret"}
+	runtime.onePassword = secrets
 	configured.SecretStorage = &domain.SecretStorage{
 		Provider: "onepassword", Account: "example", VaultID: "vault-id", ItemID: "item-id",
 	}
@@ -198,6 +204,9 @@ func TestConfigureExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
 	state := result.Data.(applicationState)
 	if state.Status != "ready" || state.Preferences.Repository.SecretStorage.ItemID != "item-id" {
 		t.Fatalf("unexpected connected state: %#v", state)
+	}
+	if secrets.updated == nil || secrets.updated.Location != repositoryPath {
+		t.Fatalf("1Password metadata was not updated: %#v", secrets.updated)
 	}
 }
 

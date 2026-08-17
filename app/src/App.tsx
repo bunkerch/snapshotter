@@ -252,7 +252,12 @@ function Setup({
         { id: string; title: string }[]
     >([])
     const [onePasswordItems, setOnePasswordItems] = useState<
-        { id: string; title: string }[]
+        {
+            id: string
+            title: string
+            kind?: "local" | "s3" | "sftp" | "rest"
+            location?: string
+        }[]
     >([])
     const [onePasswordItemID, setOnePasswordItemID] = useState("")
     const [loadingVaults, setLoadingVaults] = useState(false)
@@ -319,13 +324,17 @@ function Setup({
         const generation = onePasswordRequestGeneration.current
         setLoadingVaults(true)
         try {
-            const items = await requestNative<{ id: string; title: string }[]>(
-                "onepassword.items",
+            const items = await requestNative<
                 {
-                    account: onePasswordAccount,
-                    vaultID: onePasswordVaultID,
-                },
-            )
+                    id: string
+                    title: string
+                    kind?: "local" | "s3" | "sftp" | "rest"
+                    location?: string
+                }[]
+            >("onepassword.items", {
+                account: onePasswordAccount,
+                vaultID: onePasswordVaultID,
+            })
             if (generation !== onePasswordRequestGeneration.current) return
             setOnePasswordItems(items)
             setOnePasswordItemID("")
@@ -530,11 +539,20 @@ function Setup({
                                     Snapshotter item
                                     <select
                                         value={onePasswordItemID}
-                                        onChange={(event) =>
+                                        onChange={(event) => {
+                                            const item = onePasswordItems.find(
+                                                (candidate) =>
+                                                    candidate.id ===
+                                                    event.target.value,
+                                            )
                                             setOnePasswordItemID(
                                                 event.target.value,
                                             )
-                                        }
+                                            if (!item) return
+                                            setName(item.title)
+                                            setKind(item.kind ?? "local")
+                                            setLocation(item.location ?? "")
+                                        }}
                                     >
                                         <option value="">
                                             Use entered password
@@ -599,6 +617,12 @@ function Setup({
                         onChange={(event) => setLocation(event.target.value)}
                         spellCheck={false}
                     />
+                </label>
+            )}
+            {kind === "local" && usesExistingOnePasswordItem && location && (
+                <label>
+                    Saved destination
+                    <input value={location} disabled />
                 </label>
             )}
             {kind === "s3" && (

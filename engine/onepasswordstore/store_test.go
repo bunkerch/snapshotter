@@ -20,6 +20,7 @@ func TestDesktopErrorsUseCurrentSettingName(t *testing.T) {
 type fakeClient struct {
 	created  onepassword.ItemCreateParams
 	item     onepassword.Item
+	updated  onepassword.Item
 	archived [2]string
 }
 
@@ -30,6 +31,10 @@ func (f *fakeClient) create(_ context.Context, params onepassword.ItemCreatePara
 
 func (f *fakeClient) get(context.Context, string, string) (onepassword.Item, error) {
 	return f.item, nil
+}
+func (f *fakeClient) put(_ context.Context, item onepassword.Item) (onepassword.Item, error) {
+	f.updated = item
+	return item, nil
 }
 func (f *fakeClient) archive(_ context.Context, vaultID, itemID string) error {
 	f.archived = [2]string{vaultID, itemID}
@@ -50,6 +55,8 @@ func TestStoreRoundTrip(t *testing.T) {
 	store := newStore(func(context.Context, string) (client, error) { return fake, nil })
 	repository := domain.Repository{
 		Name:          "Photos",
+		Kind:          domain.RepositoryS3,
+		Location:      "s3:s3.amazonaws.com/archive/photos",
 		SecretStorage: &domain.SecretStorage{Provider: "onepassword", Account: "example.1password.com", VaultID: "vault-id"},
 	}
 	wantCredentials := domain.RepositoryCredentials{AccessKey: "access", SecretKey: "secret"}
@@ -57,8 +64,14 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if itemID != "item-id" || fake.created.VaultID != "vault-id" || len(fake.created.Fields) != 2 {
+	if itemID != "item-id" || fake.created.VaultID != "vault-id" || len(fake.created.Fields) != 4 {
 		t.Fatalf("unexpected created item: %#v", fake.created)
+	}
+	if itemField(fake.created.Fields, kindFieldID) != "s3" || itemField(fake.created.Fields, locationFieldID) != repository.Location {
+		t.Fatalf("repository metadata was not saved: %#v", fake.created.Fields)
+	}
+	if fake.created.Notes == nil || !strings.Contains(*fake.created.Notes, recoveryMarker) {
+		t.Fatalf("recovery instructions were not saved: %#v", fake.created.Notes)
 	}
 	fake.item = onepassword.Item{Fields: fake.created.Fields}
 	credentials, password, err := store.Load(context.Background(), domain.SecretStorage{Account: "example.1password.com", VaultID: "vault-id", ItemID: itemID})
@@ -71,14 +84,17 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestStoreListsVaultsAndArchivesItem(t *testing.T) {
-	fake := &fakeClient{}
+	fake := &fakeClient{item: onepassword.Item{Fields: []onepassword.ItemField{
+		{ID: kindFieldID, Value: "sftp"},
+		{ID: locationFieldID, Value: "sftp:backup@example.com:/archive"},
+	}}}
 	store := newStore(func(context.Context, string) (client, error) { return fake, nil })
 	vaults, err := store.Vaults(context.Background(), "example")
 	if err != nil || len(vaults) != 1 || vaults[0].Title != "Private" {
 		t.Fatalf("unexpected vaults: %#v, %v", vaults, err)
 	}
 	items, err := store.Items(context.Background(), "example", "vault-id")
-	if err != nil || len(items) != 1 || items[0].ID != "snapshotter-item" || items[0].Title != "Photos" {
+	if err != nil || len(items) != 1 || items[0].ID != "snapshotter-item" || items[0].Title != "Photos" || items[0].Kind != domain.RepositorySFTP || items[0].Location != "sftp:backup@example.com:/archive" {
 		t.Fatalf("unexpected items: %#v, %v", items, err)
 	}
 	storage := domain.SecretStorage{Account: "example", VaultID: "vault-id", ItemID: "item-id"}
@@ -87,5 +103,40 @@ func TestStoreListsVaultsAndArchivesItem(t *testing.T) {
 	}
 	if fake.archived != [2]string{"vault-id", "item-id"} {
 		t.Fatalf("unexpected archive request: %#v", fake.archived)
+	}
+}
+
+func TestUpdateMetadataPreservesSecretsAndExistingNotes(t *testing.T) {
+	sectionID := "secrets"
+	fake := &fakeClient{item: onepassword.Item{
+		ID:      "item-id",
+		VaultID: "vault-id",
+		Title:   "Snapshotter: Old name",
+		Fields: []onepassword.ItemField{
+			{ID: passwordFieldID, Value: "repository-password"},
+			{ID: credentialsFieldID, SectionID: &sectionID, Value: `{"accessKey":"access"}`},
+		},
+		Notes: "Keep this user note.",
+	}}
+	store := newStore(func(context.Context, string) (client, error) { return fake, nil })
+	repository := domain.Repository{
+		Name:     "Photos",
+		Kind:     domain.RepositoryS3,
+		Location: "s3:s3.amazonaws.com/archive/photos",
+		SecretStorage: &domain.SecretStorage{
+			Provider: "onepassword", Account: "example", VaultID: "vault-id", ItemID: "item-id",
+		},
+	}
+	if err := store.UpdateMetadata(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	if fake.updated.Title != "Snapshotter: Photos" || itemField(fake.updated.Fields, kindFieldID) != "s3" || itemField(fake.updated.Fields, locationFieldID) != repository.Location {
+		t.Fatalf("repository metadata was not updated: %#v", fake.updated)
+	}
+	if itemField(fake.updated.Fields, passwordFieldID) != "repository-password" || itemField(fake.updated.Fields, credentialsFieldID) != `{"accessKey":"access"}` {
+		t.Fatalf("secret fields changed: %#v", fake.updated.Fields)
+	}
+	if !strings.Contains(fake.updated.Notes, "Keep this user note.") || strings.Count(fake.updated.Notes, recoveryMarker) != 1 {
+		t.Fatalf("notes were not preserved: %q", fake.updated.Notes)
 	}
 }

@@ -35,6 +35,7 @@ type secretStore interface {
 	Vaults(context.Context, string) ([]onepasswordstore.Vault, error)
 	Items(context.Context, string, string) ([]onepasswordstore.Item, error)
 	Save(context.Context, domain.Repository, domain.RepositoryCredentials, string) (string, error)
+	UpdateMetadata(context.Context, domain.Repository) error
 	Load(context.Context, domain.SecretStorage) (domain.RepositoryCredentials, string, error)
 	Archive(context.Context, domain.SecretStorage) error
 }
@@ -657,8 +658,11 @@ func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage)
 }
 
 func (r *runtime) persistOnePasswordSecrets(ctx context.Context, repository *domain.Repository, credentials domain.RepositoryCredentials, password string) (string, error) {
-	if repository.SecretStorage == nil || repository.SecretStorage.ItemID != "" {
+	if repository.SecretStorage == nil {
 		return "", nil
+	}
+	if repository.SecretStorage.ItemID != "" {
+		return "", r.onePassword.UpdateMetadata(ctx, *repository)
 	}
 	itemID, err := r.onePassword.Save(ctx, *repository, credentials, password)
 	if err != nil {

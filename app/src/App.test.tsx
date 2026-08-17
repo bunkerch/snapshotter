@@ -249,7 +249,15 @@ describe("Snapshotter app", () => {
                 return [{ id: "vault-id", title: "Private" }]
             }
             if (type === "onepassword.items") {
-                return [{ id: "item-id", title: "Archive" }]
+                return [
+                    {
+                        id: "item-id",
+                        title: "Archive",
+                        kind: "s3",
+                        location: "s3:s3.amazonaws.com/archive/snapshotter",
+                    },
+                    { id: "legacy-item", title: "Legacy" },
+                ]
             }
             return readyState
         })
@@ -273,10 +281,26 @@ describe("Snapshotter app", () => {
             }),
             { target: { value: "item-id" } },
         )
-        fireEvent.click(screen.getByRole("button", { name: "S3" }))
-        fireEvent.change(screen.getByLabelText("Destination"), {
-            target: { value: "s3:s3.amazonaws.com/archive/snapshotter" },
-        })
+        expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+            "Archive",
+        )
+        expect(
+            screen.getByLabelText<HTMLInputElement>("Destination").value,
+        ).toBe("s3:s3.amazonaws.com/archive/snapshotter")
+
+        fireEvent.change(
+            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            { target: { value: "legacy-item" } },
+        )
+        expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+            "Legacy",
+        )
+        expect(screen.queryByLabelText("Destination")).toBeNull()
+
+        fireEvent.change(
+            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            { target: { value: "item-id" } },
+        )
         fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
