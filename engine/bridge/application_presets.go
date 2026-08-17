@@ -21,6 +21,16 @@ var presetDefinitions = []presetDefinition{
 	{id: "vscode", name: "Visual Studio Code", paths: []string{"Library/Application Support/Code/User", ".vscode/extensions"}},
 	{id: "minecraft", name: "Minecraft saves", paths: []string{"Library/Application Support/minecraft/saves"}},
 	{id: "chrome", name: "Google Chrome", paths: []string{"Library/Application Support/Google/Chrome"}},
+	{id: "signal", name: "Signal", paths: []string{"Library/Application Support/Signal"}},
+	{id: "whatsapp", name: "WhatsApp", paths: []string{"Library/Containers/net.whatsapp.WhatsApp", "Library/Group Containers/group.net.whatsapp.WhatsApp.shared", "Library/Group Containers/group.net.whatsapp.WhatsApp.private", "Library/Group Containers/group.net.whatsapp.family"}},
+	{id: "imhex", name: "ImHex", paths: []string{"Library/Application Support/imhex"}},
+	{id: "mongodb-compass", name: "MongoDB Compass", paths: []string{"Library/Application Support/MongoDB Compass"}},
+	{id: "beekeeper-studio", name: "Beekeeper Studio", paths: []string{"Library/Application Support/beekeeper-studio"}},
+	{id: "sol", name: "Sol", paths: []string{".config/sol", "Library/Preferences/com.ospfranco.sol.plist"}},
+	{id: "rectangle", name: "Rectangle", paths: []string{"Library/Preferences/com.knollsoft.Rectangle.plist"}},
+	{id: "snapshotter", name: "Snapshotter", paths: []string{"Library/Application Support/Snapshotter"}},
+	{id: "btop", name: "btop", paths: []string{".config/btop"}},
+	{id: "wakatime", name: "WakaTime", paths: []string{".wakatime.cfg", ".wakatime"}},
 }
 
 func applicationPresets(selected []string) ([]domain.ApplicationPreset, error) {
