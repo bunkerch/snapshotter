@@ -169,13 +169,11 @@ describe("Snapshotter app", () => {
         fireEvent.change(screen.getByLabelText("Secret key"), {
             target: { value: "secret" },
         })
-        fireEvent.click(
-            screen.getByRole("button", { name: "Create repository" }),
-        )
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
-                "repository.create.remote",
+                "repository.configure.remote",
                 expect.objectContaining({
                     kind: "s3",
                     location: "s3:s3.amazonaws.com/archive/snapshotter",
@@ -188,7 +186,7 @@ describe("Snapshotter app", () => {
         })
     })
 
-    it("opens an existing remote repository", async () => {
+    it("configures an existing remote repository", async () => {
         vi.mocked(requestNative).mockResolvedValueOnce({
             ...readyState,
             status: "unconfigured",
@@ -202,7 +200,6 @@ describe("Snapshotter app", () => {
         render(<App />)
         await screen.findByText("Set up your backup")
 
-        fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
         fireEvent.click(screen.getByRole("button", { name: "SFTP" }))
         fireEvent.change(screen.getByLabelText("Password"), {
             target: { value: "repository-secret" },
@@ -210,11 +207,11 @@ describe("Snapshotter app", () => {
         fireEvent.change(screen.getByLabelText("Destination"), {
             target: { value: "sftp:user@example.com:/archive" },
         })
-        fireEvent.click(screen.getByRole("button", { name: "Open repository" }))
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
-                "repository.open.remote",
+                "repository.configure.remote",
                 expect.objectContaining({
                     kind: "sftp",
                     location: "sftp:user@example.com:/archive",
@@ -260,7 +257,6 @@ describe("Snapshotter app", () => {
         await screen.findByText("Set up your backup")
 
         fireEvent.click(screen.getByRole("button", { name: "1Password" }))
-        fireEvent.click(screen.getByRole("button", { name: "Open existing" }))
         const account = await screen.findByRole<HTMLSelectElement>("combobox", {
             name: "1Password account",
         })
@@ -271,16 +267,21 @@ describe("Snapshotter app", () => {
         fireEvent.click(
             screen.getByRole("button", { name: "Use synced secrets…" }),
         )
-        await screen.findByRole("combobox", { name: "Snapshotter item" })
+        fireEvent.change(
+            await screen.findByRole("combobox", {
+                name: "Snapshotter item",
+            }),
+            { target: { value: "item-id" } },
+        )
         fireEvent.click(screen.getByRole("button", { name: "S3" }))
         fireEvent.change(screen.getByLabelText("Destination"), {
             target: { value: "s3:s3.amazonaws.com/archive/snapshotter" },
         })
-        fireEvent.click(screen.getByRole("button", { name: "Open repository" }))
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
-                "repository.open.remote",
+                "repository.configure.remote",
                 expect.objectContaining({
                     password: "",
                     secretStorage: {

@@ -2,12 +2,12 @@ package resticadapter
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	minio "github.com/minio/minio-go/v7"
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/service"
 )
@@ -46,28 +46,43 @@ func TestInitializeAndUnlockLocalRepository(t *testing.T) {
 	}
 }
 
-func TestInitializeExistingRepositorySuggestsOpeningIt(t *testing.T) {
+func TestConfigureCreatesOrUnlocksWithoutFallingBackOnWrongPassword(t *testing.T) {
 	configured := domain.Repository{
 		ID: "test", Name: "Test Repository", Kind: domain.RepositoryLocal, Location: t.TempDir(),
 	}
+	password := []byte("correct password")
 	creator := &Repository{}
-	if err := creator.Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("password")); err != nil {
-		t.Fatal(err)
+	created, err := creator.Configure(context.Background(), configured, domain.RepositoryCredentials{}, password)
+	if err != nil || !created {
+		t.Fatalf("expected a new repository, got created=%v err=%v", created, err)
 	}
 	if err := creator.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	err := (&Repository{}).Initialize(context.Background(), configured, domain.RepositoryCredentials{}, []byte("password"))
-	if err == nil || !strings.Contains(err.Error(), "already exists; choose Open existing") {
-		t.Fatalf("expected actionable existing repository error, got %v", err)
+	opener := &Repository{}
+	created, err = opener.Configure(context.Background(), configured, domain.RepositoryCredentials{}, password)
+	if err != nil || created {
+		t.Fatalf("expected an existing repository, got created=%v err=%v", created, err)
+	}
+	if err := opener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err = (&Repository{}).Configure(context.Background(), configured, domain.RepositoryCredentials{}, []byte("wrong password"))
+	if err == nil || created || !strings.Contains(err.Error(), "unlock repository") {
+		t.Fatalf("wrong password must not initialize: created=%v err=%v", created, err)
 	}
 }
 
-func TestRemoteInitializationErrorSuggestsOpeningExistingRepository(t *testing.T) {
-	err := clarifyInitializationError(errors.New("initialize repository: repository master key and config already initialized"))
-	if !strings.Contains(err.Error(), "already exists; choose Open existing") {
-		t.Fatalf("expected actionable existing repository error, got %v", err)
+func TestConfigureRecognizesOnlyMissingS3BucketAsAbsent(t *testing.T) {
+	missing := minio.ErrorResponse{Code: minio.NoSuchBucket}
+	denied := minio.ErrorResponse{Code: "AccessDenied"}
+	if !isMissingS3Bucket(domain.RepositoryS3, missing) {
+		t.Fatal("missing S3 bucket was not recognized")
+	}
+	if isMissingS3Bucket(domain.RepositoryS3, denied) || isMissingS3Bucket(domain.RepositoryREST, missing) {
+		t.Fatal("non-absence error was treated as a missing S3 bucket")
 	}
 }
 

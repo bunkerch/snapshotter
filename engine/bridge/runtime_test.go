@@ -129,7 +129,7 @@ func TestAddSourcesRejectsFiles(t *testing.T) {
 	}
 }
 
-func TestConnectExistingRepository(t *testing.T) {
+func TestConfigureExistingRepository(t *testing.T) {
 	repositoryPath := filepath.Join(t.TempDir(), "repository")
 	configured := domain.Repository{
 		ID: "existing", Name: "Existing", Kind: domain.RepositoryLocal, Location: repositoryPath,
@@ -143,7 +143,7 @@ func TestConnectExistingRepository(t *testing.T) {
 	}
 
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
-	payload, err := json.Marshal(request{Type: "repository.connect", Payload: mustJSON(t, map[string]any{
+	payload, err := json.Marshal(request{Type: "repository.configure", Payload: mustJSON(t, map[string]any{
 		"repository": configured,
 		"password":   "secret",
 	})})
@@ -168,7 +168,7 @@ func TestConnectExistingRepository(t *testing.T) {
 	}
 }
 
-func TestConnectExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
+func TestConfigureExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
 	repositoryPath := filepath.Join(t.TempDir(), "repository")
 	configured := domain.Repository{
 		ID: "existing", Name: "Existing", Kind: domain.RepositoryLocal, Location: repositoryPath,
@@ -187,7 +187,7 @@ func TestConnectExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
 		Provider: "onepassword", Account: "example", VaultID: "vault-id", ItemID: "item-id",
 	}
 	result := runtime.handle(context.Background(), mustJSON(t, request{
-		Type: "repository.connect",
+		Type: "repository.configure",
 		Payload: mustJSON(t, map[string]any{
 			"repository": configured,
 		}),
@@ -198,29 +198,6 @@ func TestConnectExistingRepositoryLoadsSyncedOnePasswordItem(t *testing.T) {
 	state := result.Data.(applicationState)
 	if state.Status != "ready" || state.Preferences.Repository.SecretStorage.ItemID != "item-id" {
 		t.Fatalf("unexpected connected state: %#v", state)
-	}
-}
-
-func TestCreateRepositoryArchivesOnePasswordItemWhenInitializationFails(t *testing.T) {
-	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
-	secrets := &fakeSecretStore{}
-	runtime.onePassword = secrets
-	configured := domain.Repository{
-		ID: "invalid", Name: "Invalid", Kind: "unsupported", Location: t.TempDir(),
-		SecretStorage: &domain.SecretStorage{Provider: "onepassword", Account: "example", VaultID: "vault-id"},
-	}
-	result := runtime.handle(context.Background(), mustJSON(t, request{
-		Type: "repository.create",
-		Payload: mustJSON(t, map[string]any{
-			"repository": configured,
-			"password":   "secret",
-		}),
-	}))
-	if result.OK {
-		t.Fatalf("expected repository creation to fail: %#v", result)
-	}
-	if secrets.archived == nil || secrets.archived.ItemID != "item-id" {
-		t.Fatalf("created 1Password item was not archived: %#v", secrets.archived)
 	}
 }
 

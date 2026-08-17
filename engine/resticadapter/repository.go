@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	minio "github.com/minio/minio-go/v7"
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/service"
 	"github.com/restic/restic/internal/archiver"
@@ -38,6 +39,68 @@ type Repository struct {
 	repo *repository.Repository
 }
 
+func (r *Repository) Configure(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) (bool, error) {
+	if len(password) == 0 {
+		return false, errors.New("repository password is required")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repo != nil {
+		return false, ErrRepositoryOpen
+	}
+
+	backend, err := openBackend(ctx, configured, credentials, false)
+	if err != nil {
+		return false, fmt.Errorf("open backend: %w", err)
+	}
+	_, configErr := backend.Stat(ctx, backendpkg.Handle{Type: restic.ConfigFile})
+	if configErr == nil {
+		repo, err := repository.New(backend, repository.Options{})
+		if err != nil {
+			_ = backend.Close()
+			return false, fmt.Errorf("open repository: %w", err)
+		}
+		if err := repo.SearchKey(ctx, string(password), 0, ""); err != nil {
+			_ = repo.Close()
+			return false, fmt.Errorf("unlock repository: %w", err)
+		}
+		r.repo = repo
+		return false, nil
+	}
+	if !backend.IsNotExist(configErr) && !isMissingS3Bucket(configured.Kind, configErr) {
+		_ = backend.Close()
+		return false, fmt.Errorf("inspect repository config: %w", configErr)
+	}
+	if err := backend.Close(); err != nil {
+		return false, fmt.Errorf("close backend probe: %w", err)
+	}
+
+	backend, err = openBackend(ctx, configured, credentials, true)
+	if err != nil {
+		return false, fmt.Errorf("create backend: %w", err)
+	}
+	repo, err := repository.New(backend, repository.Options{})
+	if err != nil {
+		_ = backend.Close()
+		return false, fmt.Errorf("create repository: %w", err)
+	}
+	if err := repo.Init(ctx, restic.StableRepoVersion, string(password), nil); err != nil {
+		_ = repo.Close()
+		return false, fmt.Errorf("initialize repository: %w", err)
+	}
+	r.repo = repo
+	return true, nil
+}
+
+func isMissingS3Bucket(kind domain.RepositoryKind, err error) bool {
+	if kind != domain.RepositoryS3 {
+		return false
+	}
+	var response minio.ErrorResponse
+	return errors.As(err, &response) && response.Code == minio.NoSuchBucket
+}
+
 func (r *Repository) Initialize(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) error {
 	if len(password) == 0 {
 		return errors.New("repository password is required")
@@ -51,7 +114,7 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 
 	backend, err := openBackend(ctx, configured, credentials, true)
 	if err != nil {
-		return clarifyInitializationError(fmt.Errorf("create local backend: %w", err))
+		return fmt.Errorf("create local backend: %w", err)
 	}
 	repo, err := repository.New(backend, repository.Options{})
 	if err != nil {
@@ -60,19 +123,10 @@ func (r *Repository) Initialize(ctx context.Context, configured domain.Repositor
 	}
 	if err := repo.Init(ctx, restic.StableRepoVersion, string(password), nil); err != nil {
 		_ = repo.Close()
-		return clarifyInitializationError(fmt.Errorf("initialize repository: %w", err))
+		return fmt.Errorf("initialize repository: %w", err)
 	}
 	r.repo = repo
 	return nil
-}
-
-func clarifyInitializationError(err error) error {
-	message := err.Error()
-	if strings.Contains(message, "config file already exists") ||
-		strings.Contains(message, "repository master key and config already initialized") {
-		return errors.New("repository already exists; choose Open existing to connect with its password")
-	}
-	return err
 }
 
 func (r *Repository) Unlock(ctx context.Context, configured domain.Repository, credentials domain.RepositoryCredentials, password []byte) error {

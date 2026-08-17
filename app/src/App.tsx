@@ -232,9 +232,6 @@ function Setup({
     const [name, setName] = useState("My Backup")
     const [password, setPassword] = useState("")
     const [kind, setKind] = useState<"local" | "s3" | "sftp" | "rest">("local")
-    const [repositoryMode, setRepositoryMode] = useState<"create" | "open">(
-        "create",
-    )
     const [location, setLocation] = useState("")
     const [username, setUsername] = useState("")
     const [backendPassword, setBackendPassword] = useState("")
@@ -331,7 +328,7 @@ function Setup({
             )
             if (generation !== onePasswordRequestGeneration.current) return
             setOnePasswordItems(items)
-            setOnePasswordItemID(items[0]?.id ?? "")
+            setOnePasswordItemID("")
             setError(
                 items.length === 0
                     ? "No Snapshotter items were found in this vault."
@@ -348,9 +345,7 @@ function Setup({
     }
 
     const usesExistingOnePasswordItem =
-        secretProvider === "onepassword" &&
-        repositoryMode === "open" &&
-        onePasswordItemID !== ""
+        secretProvider === "onepassword" && onePasswordItemID !== ""
 
     const create = async () => {
         setBusy(true)
@@ -358,12 +353,8 @@ function Setup({
             onComplete(
                 await requestNative<ApplicationState>(
                     kind === "local"
-                        ? repositoryMode === "create"
-                            ? "repository.create.choose"
-                            : "repository.open.choose"
-                        : repositoryMode === "create"
-                          ? "repository.create.remote"
-                          : "repository.open.remote",
+                        ? "repository.configure.choose"
+                        : "repository.configure.remote",
                     {
                         name,
                         password,
@@ -382,10 +373,7 @@ function Setup({
                                       provider: "onepassword",
                                       account: onePasswordAccount,
                                       vaultID: onePasswordVaultID,
-                                      itemID:
-                                          repositoryMode === "open"
-                                              ? onePasswordItemID || undefined
-                                              : undefined,
+                                      itemID: onePasswordItemID || undefined,
                                   }
                                 : undefined,
                     },
@@ -405,25 +393,6 @@ function Setup({
             </div>
             <h1>Set up your backup</h1>
             <p>Choose a destination and encryption password.</p>
-            <fieldset
-                className="repository-mode"
-                aria-label="Repository action"
-            >
-                <button
-                    type="button"
-                    className={repositoryMode === "create" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("create")}
-                >
-                    New repository
-                </button>
-                <button
-                    type="button"
-                    className={repositoryMode === "open" ? "selected" : ""}
-                    onClick={() => setRepositoryMode("open")}
-                >
-                    Open existing
-                </button>
-            </fieldset>
             <fieldset className="repository-mode" aria-label="Secret storage">
                 <button
                     type="button"
@@ -544,7 +513,7 @@ function Setup({
                             </select>
                         </label>
                     )}
-                    {repositoryMode === "open" && onePasswordVaultID && (
+                    {onePasswordVaultID && (
                         <>
                             <button
                                 type="button"
@@ -567,6 +536,9 @@ function Setup({
                                             )
                                         }
                                     >
+                                        <option value="">
+                                            Use entered password
+                                        </option>
                                         {onePasswordItems.map((item) => (
                                             <option
                                                 key={item.id}
@@ -614,6 +586,7 @@ function Setup({
                 <input
                     type="password"
                     value={password}
+                    disabled={usesExistingOnePasswordItem}
                     onChange={(event) => setPassword(event.target.value)}
                 />
             </label>
@@ -634,6 +607,7 @@ function Setup({
                         Access key
                         <input
                             value={accessKey}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setAccessKey(event.target.value)
                             }
@@ -645,6 +619,7 @@ function Setup({
                         <input
                             type="password"
                             value={secretKey}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setSecretKey(event.target.value)
                             }
@@ -655,6 +630,7 @@ function Setup({
                         Region <small>Optional</small>
                         <input
                             value={region}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) => setRegion(event.target.value)}
                             placeholder="us-east-1"
                         />
@@ -667,6 +643,7 @@ function Setup({
                         Username <small>Optional</small>
                         <input
                             value={username}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setUsername(event.target.value)
                             }
@@ -678,6 +655,7 @@ function Setup({
                         <input
                             type="password"
                             value={backendPassword}
+                            disabled={usesExistingOnePasswordItem}
                             onChange={(event) =>
                                 setBackendPassword(event.target.value)
                             }
@@ -706,16 +684,10 @@ function Setup({
                 onClick={create}
             >
                 {busy
-                    ? repositoryMode === "create"
-                        ? "Creating…"
-                        : "Opening…"
+                    ? "Configuring…"
                     : kind === "local"
-                      ? repositoryMode === "create"
-                          ? "Choose destination…"
-                          : "Choose repository…"
-                      : repositoryMode === "create"
-                        ? "Create repository"
-                        : "Open repository"}
+                      ? "Choose destination…"
+                      : "Continue"}
             </button>
         </section>
     )

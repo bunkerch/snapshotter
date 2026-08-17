@@ -130,8 +130,8 @@ vault. On macOS, Snapshotter detects active accounts from
 remains available if detection is unavailable. Snapshotter stores only the account
 UUID, vault ID, and item ID in its preferences. The repository password and
 remote-backend credentials remain in the
-synced 1Password item. On another Mac, choose **Open existing**, select the same
-vault, and use the synced Snapshotter item instead of entering the secrets again.
+synced 1Password item. On another Mac, choose the same destination, load the same
+vault, and select the synced Snapshotter item instead of entering the secrets again.
 Disconnecting a repository leaves its synced item in 1Password so other devices do
 not lose access; remove that item manually when it is no longer needed anywhere.
 

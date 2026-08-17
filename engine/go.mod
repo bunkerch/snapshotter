@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.1
+	github.com/minio/minio-go/v7 v7.1.0
 	github.com/restic/restic v0.19.1
 )
 
@@ -27,7 +28,6 @@ require (
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.1.0 // indirect
 	github.com/peterbourgon/unixtransport v0.0.7 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

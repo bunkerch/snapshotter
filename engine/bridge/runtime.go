@@ -103,10 +103,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.removeExclusion(req.Payload)
 	case "application.setEnabled":
 		data, err = r.setApplicationEnabled(req.Payload)
-	case "repository.create":
-		data, err = r.createRepository(ctx, req.Payload)
-	case "repository.connect":
-		data, err = r.connectRepository(ctx, req.Payload)
+	case "repository.configure":
+		data, err = r.configureRepository(ctx, req.Payload)
 	case "repository.unlock":
 		data, err = r.unlockRepository(ctx, req.Payload)
 	case "repository.disconnect":
@@ -592,39 +590,7 @@ func normalizeSourcePath(path string) (string, error) {
 	return filepath.Clean(absolute), nil
 }
 
-func (r *runtime) createRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
-	var input struct {
-		Repository  domain.Repository            `json:"repository"`
-		Credentials domain.RepositoryCredentials `json:"credentials"`
-		Password    string                       `json:"password"`
-	}
-	if err := json.Unmarshal(payload, &input); err != nil {
-		return applicationState{}, fmt.Errorf("decode repository: %w", err)
-	}
-	createdItem, err := r.persistOnePasswordSecrets(ctx, &input.Repository, input.Credentials, input.Password)
-	if err != nil {
-		return applicationState{}, err
-	}
-	if err := r.repository.Initialize(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
-		r.archiveCreatedItem(ctx, input.Repository.SecretStorage, createdItem)
-		return applicationState{}, err
-	}
-	preferences, err := r.store.Load()
-	if err != nil {
-		_ = r.repository.Close()
-		r.archiveCreatedItem(ctx, input.Repository.SecretStorage, createdItem)
-		return applicationState{}, err
-	}
-	preferences.Repository = &input.Repository
-	if err := r.store.Save(preferences); err != nil {
-		_ = r.repository.Close()
-		r.archiveCreatedItem(ctx, input.Repository.SecretStorage, createdItem)
-		return applicationState{}, err
-	}
-	return r.state(ctx)
-}
-
-func (r *runtime) connectRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+func (r *runtime) configureRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
 	var input struct {
 		Repository  domain.Repository            `json:"repository"`
 		Credentials domain.RepositoryCredentials `json:"credentials"`
@@ -640,7 +606,7 @@ func (r *runtime) connectRepository(ctx context.Context, payload json.RawMessage
 			return applicationState{}, err
 		}
 	}
-	if err := r.repository.Unlock(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
+	if _, err := r.repository.Configure(ctx, input.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
 	}
 	createdItem, err := r.persistOnePasswordSecrets(ctx, &input.Repository, input.Credentials, input.Password)
