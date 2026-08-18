@@ -56,6 +56,29 @@ type ApplicationPreset struct {
 	Available bool     `json:"available"`
 }
 
+type BackupMetadata struct {
+	Version      int                 `json:"version"`
+	CreatedAt    time.Time           `json:"createdAt"`
+	Sources      []Source            `json:"sources"`
+	Exclusions   []Exclusion         `json:"exclusions"`
+	Applications []BackupApplication `json:"applications"`
+}
+
+type BackupApplication struct {
+	ID            string               `json:"id"`
+	Name          string               `json:"name"`
+	Paths         []string             `json:"paths"`
+	KeychainItems []BackupKeychainItem `json:"keychainItems,omitempty"`
+}
+
+// BackupKeychainItem describes Keychain material an application restore needs.
+// Value is optional so metadata can describe a requirement without exporting a secret.
+type BackupKeychainItem struct {
+	Service string `json:"service"`
+	Account string `json:"account"`
+	Value   string `json:"value,omitempty"`
+}
+
 type RetentionPolicy struct {
 	Hourly  int `json:"hourly"`
 	Daily   int `json:"daily"`

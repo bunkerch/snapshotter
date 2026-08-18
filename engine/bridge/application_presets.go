@@ -3,14 +3,16 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/restic/restic/app/domain"
 )
 
 type presetDefinition struct {
-	id    string
-	name  string
-	paths []string
+	id            string
+	name          string
+	paths         []string
+	keychainItems []domain.BackupKeychainItem
 }
 
 var presetDefinitions = []presetDefinition{
@@ -20,7 +22,7 @@ var presetDefinitions = []presetDefinition{
 	{id: "opencode", name: "OpenCode", paths: []string{".config/opencode", ".local/share/opencode", ".local/state/opencode"}},
 	{id: "vscode", name: "Visual Studio Code", paths: []string{"Library/Application Support/Code/User", ".vscode/extensions"}},
 	{id: "minecraft", name: "Minecraft saves", paths: []string{"Library/Application Support/minecraft/saves"}},
-	{id: "chrome", name: "Google Chrome", paths: []string{"Library/Application Support/Google/Chrome"}},
+	{id: "chrome", name: "Google Chrome", paths: []string{"Library/Application Support/Google/Chrome"}, keychainItems: []domain.BackupKeychainItem{{Service: "Chrome Safe Storage", Account: "Chrome"}}},
 	{id: "signal", name: "Signal", paths: []string{"Library/Application Support/Signal"}},
 	{id: "whatsapp", name: "WhatsApp", paths: []string{"Library/Containers/net.whatsapp.WhatsApp", "Library/Group Containers/group.net.whatsapp.WhatsApp.shared", "Library/Group Containers/group.net.whatsapp.WhatsApp.private", "Library/Group Containers/group.net.whatsapp.family"}},
 	{id: "imhex", name: "ImHex", paths: []string{"Library/Application Support/imhex"}},
@@ -87,4 +89,57 @@ func knownPreset(id string) bool {
 		}
 	}
 	return false
+}
+
+func backupMetadata(preferences domain.Preferences, presets []domain.ApplicationPreset, applicationSources []domain.Source, captured map[string][]domain.BackupKeychainItem, createdAt time.Time) domain.BackupMetadata {
+	metadata := domain.BackupMetadata{
+		Version:      1,
+		CreatedAt:    createdAt,
+		Sources:      []domain.Source{},
+		Exclusions:   append([]domain.Exclusion(nil), preferences.Exclusions...),
+		Applications: []domain.BackupApplication{},
+	}
+	for _, source := range preferences.Sources {
+		if source.Enabled && !source.Excluded {
+			metadata.Sources = append(metadata.Sources, source)
+		}
+	}
+	definitions := make(map[string]presetDefinition, len(presetDefinitions))
+	for _, definition := range presetDefinitions {
+		definitions[definition.id] = definition
+	}
+	for _, preset := range presets {
+		if !preset.Enabled {
+			continue
+		}
+		paths := make([]string, 0, len(preset.Paths))
+		for _, path := range preset.Paths {
+			for _, source := range applicationSources {
+				if source.Path == path {
+					paths = append(paths, path)
+					break
+				}
+			}
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		definition := definitions[preset.ID]
+		keychainItems := append([]domain.BackupKeychainItem(nil), definition.keychainItems...)
+		for index := range keychainItems {
+			for _, item := range captured[preset.ID] {
+				if item.Service == keychainItems[index].Service && item.Account == keychainItems[index].Account {
+					keychainItems[index].Value = item.Value
+					break
+				}
+			}
+		}
+		metadata.Applications = append(metadata.Applications, domain.BackupApplication{
+			ID:            preset.ID,
+			Name:          preset.Name,
+			Paths:         paths,
+			KeychainItems: keychainItems,
+		})
+	}
+	return metadata
 }

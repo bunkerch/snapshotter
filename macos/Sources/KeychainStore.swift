@@ -26,12 +26,20 @@ struct KeychainStore: Sendable {
         try save(credentials, account: "\(repositoryID).backend")
     }
 
+    func saveApplicationPassword(_ password: String, service: String, account: String) throws {
+        try save(password, service: service, account: account, accessible: kSecAttrAccessibleAfterFirstUnlock)
+    }
+
     private func save(_ value: String, account: String) throws {
+        try save(value, service: service, account: account, accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    }
+
+    private func save(_ value: String, service: String, account: String, accessible: CFString) throws {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
 
-        let query = baseQuery(account: account)
+        let query = baseQuery(service: service, account: account)
         let attributes = [kSecValueData as String: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess {
@@ -43,7 +51,7 @@ struct KeychainStore: Sendable {
 
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        item[kSecAttrAccessible as String] = accessible
         let addStatus = SecItemAdd(item as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw KeychainError.status(addStatus)
@@ -58,8 +66,16 @@ struct KeychainStore: Sendable {
         try value(account: "\(repositoryID).backend")
     }
 
+    func applicationPassword(service: String, account: String) throws -> String? {
+        try value(service: service, account: account)
+    }
+
     private func value(account: String) throws -> String? {
-        var query = baseQuery(account: account)
+        try value(service: service, account: account)
+    }
+
+    private func value(service: String, account: String) throws -> String? {
+        var query = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -92,6 +108,10 @@ struct KeychainStore: Sendable {
     }
 
     private func baseQuery(account: String) -> [String: Any] {
+        baseQuery(service: service, account: account)
+    }
+
+    private func baseQuery(service: String, account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

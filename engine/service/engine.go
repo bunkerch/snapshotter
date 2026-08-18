@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"io"
 
 	"github.com/restic/restic/app/domain"
 )
@@ -12,10 +11,10 @@ import (
 type Engine interface {
 	Initialize(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
 	Unlock(context.Context, domain.Repository, domain.RepositoryCredentials, []byte) error
-	Backup(context.Context, []domain.Source, []domain.Exclusion, ProgressSink) (domain.Snapshot, error)
+	Backup(context.Context, []domain.Source, []domain.Exclusion, domain.BackupMetadata, ProgressSink) (domain.Snapshot, error)
 	Snapshots(context.Context) ([]domain.Snapshot, error)
 	List(context.Context, string, string) ([]domain.Entry, error)
-	Dump(context.Context, string, string, io.Writer) error
+	BackupMetadata(context.Context, string) (domain.BackupMetadata, error)
 	Forget(context.Context, domain.RetentionPolicy) error
 	DeleteSnapshot(context.Context, string) error
 	Check(context.Context, ProgressSink) error
