@@ -324,7 +324,7 @@ describe("Snapshotter app", () => {
 
         expect(await screen.findByText("Documents")).toBeTruthy()
         fireEvent.click(
-            screen.getByRole("button", { name: "Disable Documents" }),
+            screen.getByRole("switch", { name: "Disable Documents" }),
         )
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith("source.setEnabled", {
@@ -391,8 +391,8 @@ describe("Snapshotter app", () => {
         expect(screen.getByText("Available in the packaged app")).toBeTruthy()
         await waitFor(() => {
             expect(
-                screen.getByRole<HTMLButtonElement>("button", {
-                    name: "Toggle start at login",
+                screen.getByRole<HTMLButtonElement>("switch", {
+                    name: "Start at login",
                 }).disabled,
             ).toBe(true)
             expect(
@@ -432,7 +432,7 @@ describe("Snapshotter app", () => {
         await screen.findByText("Documents")
 
         fireEvent.click(screen.getByRole("button", { name: /Applications/ }))
-        fireEvent.click(screen.getByRole("button", { name: "Back up Firefox" }))
+        fireEvent.click(screen.getByRole("switch", { name: "Back up Firefox" }))
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
                 "application.setEnabled",

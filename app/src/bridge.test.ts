@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import {
-    isNativeHost,
-    requestNative,
-    sendNative,
-    subscribeToBackupProgress,
-} from "./bridge"
+import { requestNative, subscribeToBackupProgress } from "./bridge"
 
 describe("native bridge", () => {
     afterEach(() => {
@@ -31,23 +26,6 @@ describe("native bridge", () => {
         expect(postMessage).toHaveBeenCalledOnce()
     })
 
-    it("posts JSON requests to WKWebView", () => {
-        const postMessage = vi.fn()
-        window.webkit = {
-            messageHandlers: { resticNative: { postMessage } },
-        }
-
-        sendNative("backup.start", { source: "documents" })
-
-        expect(postMessage).toHaveBeenCalledWith(
-            JSON.stringify({
-                type: "backup.start",
-                payload: { source: "documents" },
-            }),
-        )
-        expect(isNativeHost()).toBe(true)
-    })
-
     it("streams native backup counters", () => {
         const listener = vi.fn()
         const unsubscribe = subscribeToBackupProgress(listener)
@@ -67,7 +45,8 @@ describe("native bridge", () => {
     })
 
     it("is safe in a regular browser", () => {
-        expect(() => sendNative("backup.start")).not.toThrow()
-        expect(isNativeHost()).toBe(false)
+        window.webkit = undefined
+        const result = requestNative("state.get")
+        void result.catch(() => {})
     })
 })
