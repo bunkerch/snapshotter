@@ -145,7 +145,11 @@ export function App() {
                 showNavigation={state?.status === "ready"}
             />
             <div className="app-content">
-                {error && <div className="error-banner">{error}</div>}
+                {error && (
+                    <div className="error-banner" role="alert">
+                        {error}
+                    </div>
+                )}
                 {!state && <Loading />}
                 {state?.status === "unconfigured" && (
                     <Setup
@@ -225,6 +229,7 @@ function Header({
                                 type="button"
                                 key={item}
                                 className={view === item ? "selected" : ""}
+                                aria-pressed={view === item}
                                 onClick={() => onView(item)}
                             >
                                 {item[0].toUpperCase() + item.slice(1)}
@@ -241,7 +246,7 @@ function Loading() {
     return (
         <div className="center-state">
             <LoaderCircle className="spinner" />
-            <span>Loading</span>
+            <span>Loading…</span>
         </div>
     )
 }
@@ -283,7 +288,9 @@ function Setup({
     >([])
     const [onePasswordItemID, setOnePasswordItemID] = useState("")
     const [loadingVaults, setLoadingVaults] = useState(false)
+    const [loadingItems, setLoadingItems] = useState(false)
     const onePasswordRequestGeneration = useRef(0)
+    const detectingAccountsRef = useRef(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
 
@@ -300,6 +307,8 @@ function Setup({
     }
 
     const discoverOnePasswordAccounts = async () => {
+        if (detectingAccountsRef.current) return
+        detectingAccountsRef.current = true
         setDetectingAccounts(true)
         try {
             const accounts = await requestNative<
@@ -314,6 +323,7 @@ function Setup({
         } catch {
             setManualAccount(true)
         } finally {
+            detectingAccountsRef.current = false
             setDetectingAccounts(false)
         }
     }
@@ -344,7 +354,7 @@ function Setup({
 
     const loadOnePasswordItems = async () => {
         const generation = onePasswordRequestGeneration.current
-        setLoadingVaults(true)
+        setLoadingItems(true)
         try {
             const items = await requestNative<
                 {
@@ -370,7 +380,7 @@ function Setup({
             setError(message(requestError))
         } finally {
             if (generation === onePasswordRequestGeneration.current) {
-                setLoadingVaults(false)
+                setLoadingItems(false)
             }
         }
     }
@@ -428,6 +438,7 @@ function Setup({
                 <button
                     type="button"
                     className={secretProvider === "keychain" ? "selected" : ""}
+                    aria-pressed={secretProvider === "keychain"}
                     onClick={() => setSecretProvider("keychain")}
                 >
                     Keychain
@@ -437,6 +448,7 @@ function Setup({
                     className={
                         secretProvider === "onepassword" ? "selected" : ""
                     }
+                    aria-pressed={secretProvider === "onepassword"}
                     onClick={() => {
                         setSecretProvider("onepassword")
                         if (!onePasswordAccount && !detectingAccounts) {
@@ -549,10 +561,10 @@ function Setup({
                             <button
                                 type="button"
                                 className="secondary-button"
-                                disabled={loadingVaults}
+                                disabled={loadingItems}
                                 onClick={() => void loadOnePasswordItems()}
                             >
-                                {loadingVaults
+                                {loadingItems
                                     ? "Loading…"
                                     : "Use synced secrets…"}
                             </button>
@@ -606,6 +618,7 @@ function Setup({
                     <button
                         type="button"
                         className={kind === option ? "selected" : ""}
+                        aria-pressed={kind === option}
                         key={option}
                         onClick={() => setKind(option)}
                     >
@@ -715,7 +728,11 @@ function Setup({
                     Uses your macOS SSH configuration, agent, and keys.
                 </small>
             )}
-            {error && <span className="form-error">{error}</span>}
+            {error && (
+                <span className="form-error" role="alert">
+                    {error}
+                </span>
+            )}
             <button
                 type="button"
                 className="primary-button setup-button"
@@ -748,6 +765,7 @@ function Locked({
 }) {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
+    const unlockStarted = useRef(false)
     const unlock = async () => {
         setBusy(true)
         try {
@@ -765,6 +783,8 @@ function Locked({
     }
 
     useEffect(() => {
+        if (unlockStarted.current) return
+        unlockStarted.current = true
         void unlock()
     }, [])
 
@@ -813,6 +833,7 @@ function Overview({
     const [sourcePath, setSourcePath] = useState("")
     const [sourceError, setSourceError] = useState<string>()
     const [addingSource, setAddingSource] = useState(false)
+    const [busySourceID, setBusySourceID] = useState<string>()
 
     const addTypedSource = async () => {
         setAddingSource(true)
@@ -828,6 +849,7 @@ function Overview({
         }
     }
     const setSourceEnabled = async (id: string, enabled: boolean) => {
+        setBusySourceID(id)
         try {
             onState(
                 await requestNative<ApplicationState>("source.setEnabled", {
@@ -838,9 +860,12 @@ function Overview({
             setSourceError(undefined)
         } catch (error) {
             setSourceError(message(error))
+        } finally {
+            setBusySourceID(undefined)
         }
     }
     const removeSource = async (id: string) => {
+        setBusySourceID(id)
         try {
             onState(
                 await requestNative<ApplicationState>("source.remove", { id }),
@@ -848,6 +873,8 @@ function Overview({
             setSourceError(undefined)
         } catch (error) {
             setSourceError(message(error))
+        } finally {
+            setBusySourceID(undefined)
         }
     }
     return (
@@ -939,7 +966,9 @@ function Overview({
                         Add
                     </button>
                     {sourceError && (
-                        <span className="form-error">{sourceError}</span>
+                        <span className="form-error" role="alert">
+                            {sourceError}
+                        </span>
                     )}
                 </div>
             )}
@@ -958,8 +987,11 @@ function Overview({
                         </div>
                         <button
                             type="button"
+                            role="switch"
+                            aria-checked={source.enabled}
                             className={`switch source-switch ${source.enabled ? "on" : ""}`}
                             aria-label={`${source.enabled ? "Disable" : "Enable"} ${basename(source.path)}`}
+                            disabled={busySourceID === source.id}
                             onClick={() =>
                                 void setSourceEnabled(
                                     source.id,
@@ -973,6 +1005,7 @@ function Overview({
                             type="button"
                             className="icon-button source-remove"
                             aria-label={`Remove ${basename(source.path)}`}
+                            disabled={busySourceID === source.id}
                             onClick={() => void removeSource(source.id)}
                         >
                             <Trash2 size={13} />
@@ -1021,8 +1054,10 @@ function BackupContentControls({
     const [exclusionsOpen, setExclusionsOpen] = useState(false)
     const [customExclusion, setCustomExclusion] = useState("")
     const [contentError, setContentError] = useState<string>()
+    const [pending, setPending] = useState(false)
 
     const update = async (type: string, payload: object) => {
+        setPending(true)
         try {
             onState(
                 normalizeState(
@@ -1032,6 +1067,8 @@ function BackupContentControls({
             setContentError(undefined)
         } catch (error) {
             setContentError(message(error))
+        } finally {
+            setPending(false)
         }
     }
 
@@ -1080,9 +1117,11 @@ function BackupContentControls({
                             </span>
                             <button
                                 type="button"
+                                role="switch"
+                                aria-checked={application.enabled}
                                 className={`switch ${application.enabled ? "on" : ""}`}
                                 aria-label={`Back up ${application.name}`}
-                                disabled={!application.available}
+                                disabled={!application.available || pending}
                                 onClick={() =>
                                     void update("application.setEnabled", {
                                         id: application.id,
@@ -1132,6 +1171,7 @@ function BackupContentControls({
                                     type="button"
                                     className="row-action"
                                     aria-label={`Remove ${exclusion.pattern}`}
+                                    disabled={pending}
                                     onClick={() =>
                                         void update("exclusion.remove", {
                                             id: exclusion.id,
@@ -1143,8 +1183,11 @@ function BackupContentControls({
                             )}
                             <button
                                 type="button"
+                                role="switch"
+                                aria-checked={exclusion.enabled}
                                 className={`switch ${exclusion.enabled ? "on" : ""}`}
-                                aria-label={`Toggle ${exclusion.pattern}`}
+                                aria-label={`${exclusion.enabled ? "Disable" : "Enable"} ${exclusion.pattern}`}
+                                disabled={pending}
                                 onClick={() =>
                                     void update("exclusion.setEnabled", {
                                         id: exclusion.id,
@@ -1173,14 +1216,18 @@ function BackupContentControls({
                         />
                         <button
                             type="submit"
-                            disabled={!customExclusion.trim()}
+                            disabled={!customExclusion.trim() || pending}
                         >
                             Add
                         </button>
                     </form>
                 </div>
             )}
-            {contentError && <div className="form-error">{contentError}</div>}
+            {contentError && (
+                <div className="form-error" role="alert">
+                    {contentError}
+                </div>
+            )}
         </section>
     )
 }
@@ -1245,8 +1292,8 @@ function Snapshots({
             <div className="search">
                 <Search size={15} />
                 <input
-                    aria-label="Search backup files"
-                    placeholder="Find a file…"
+                    aria-label="Search snapshots"
+                    placeholder="Find a snapshot…"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                 />
@@ -1395,7 +1442,7 @@ function SnapshotBrowser({
                     onClick={() =>
                         void (restoring ? cancelOperation() : restore())
                     }
-                    disabled={loading}
+                    disabled={loading || deleting}
                 >
                     {restoring ? (
                         <Square size={11} fill="currentColor" />
@@ -1475,7 +1522,7 @@ function SnapshotBrowser({
                             type="button"
                             className="destructive-button"
                             onClick={() => void deleteSnapshot()}
-                            disabled={deleting}
+                            disabled={deleting || restoring}
                         >
                             {deleting ? "Deleting…" : "Delete"}
                         </button>
@@ -1502,18 +1549,25 @@ function Settings({
     const [checkResult, setCheckResult] = useState<string>()
     const [acknowledgementsOpen, setAcknowledgementsOpen] = useState(false)
     const [disconnectOpen, setDisconnectOpen] = useState(false)
+    const [disconnecting, setDisconnecting] = useState(false)
+    const [savingRetention, setSavingRetention] = useState(false)
     const [settingsError, setSettingsError] = useState<string>()
     const packaged = isPackagedHost()
 
     const updateSchedule = async (
         changes: Partial<typeof preferences.schedule>,
     ) => {
-        onState(
-            await requestNative<ApplicationState>("schedule.set", {
-                ...preferences.schedule,
-                ...changes,
-            }),
-        )
+        try {
+            onState(
+                await requestNative<ApplicationState>("schedule.set", {
+                    ...preferences.schedule,
+                    ...changes,
+                }),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
     }
 
     const updateLaunchAtLogin = async () => {
@@ -1530,10 +1584,21 @@ function Settings({
     }
 
     const saveRetention = async () => {
-        onState(
-            await requestNative<ApplicationState>("retention.set", retention),
-        )
-        setRetentionOpen(false)
+        setSavingRetention(true)
+        try {
+            onState(
+                await requestNative<ApplicationState>(
+                    "retention.set",
+                    retention,
+                ),
+            )
+            setSettingsError(undefined)
+            setRetentionOpen(false)
+        } catch (error) {
+            setSettingsError(message(error))
+        } finally {
+            setSavingRetention(false)
+        }
     }
 
     const checkRepository = async () => {
@@ -1576,6 +1641,7 @@ function Settings({
     const disconnectRepository = async () => {
         const repositoryID = preferences.repository?.id
         if (!repositoryID) return
+        setDisconnecting(true)
         try {
             onState(
                 await requestNative<ApplicationState>("repository.disconnect", {
@@ -1586,6 +1652,8 @@ function Settings({
         } catch (error) {
             setSettingsError(message(error))
             setDisconnectOpen(false)
+        } finally {
+            setDisconnecting(false)
         }
     }
 
@@ -1593,7 +1661,9 @@ function Settings({
     return (
         <section className="page settings-page">
             {settingsError && (
-                <div className="error-banner">{settingsError}</div>
+                <div className="error-banner" role="alert">
+                    {settingsError}
+                </div>
             )}
             <h3>Repository</h3>
             <div className="setting-row">
@@ -1624,6 +1694,7 @@ function Settings({
                     <button
                         type="button"
                         onClick={() => setDisconnectOpen(false)}
+                        disabled={disconnecting}
                     >
                         Cancel
                     </button>
@@ -1631,8 +1702,9 @@ function Settings({
                         type="button"
                         className="destructive-button"
                         onClick={() => void disconnectRepository()}
+                        disabled={disconnecting}
                     >
-                        Disconnect
+                        {disconnecting ? "Disconnecting…" : "Disconnect"}
                     </button>
                 </div>
             )}
@@ -1645,8 +1717,10 @@ function Settings({
                     </span>
                     <button
                         type="button"
+                        role="switch"
+                        aria-checked={preferences.schedule.enabled}
                         className={`switch ${preferences.schedule.enabled ? "on" : ""}`}
-                        aria-label="Toggle automatic backups"
+                        aria-label="Automatic backups"
                         onClick={() =>
                             void updateSchedule({
                                 enabled: !preferences.schedule.enabled,
@@ -1665,8 +1739,10 @@ function Settings({
                     </span>
                     <button
                         type="button"
+                        role="switch"
+                        aria-checked={preferences.launchAtLogin}
                         className={`switch ${preferences.launchAtLogin ? "on" : ""}`}
-                        aria-label="Toggle start at login"
+                        aria-label="Start at login"
                         disabled={!packaged}
                         onClick={() => void updateLaunchAtLogin()}
                     >
@@ -1683,6 +1759,9 @@ function Settings({
                                         ? "selected"
                                         : ""
                                 }
+                                aria-pressed={
+                                    preferences.schedule.kind === "daily"
+                                }
                                 onClick={() =>
                                     void updateSchedule({ kind: "daily" })
                                 }
@@ -1695,6 +1774,9 @@ function Settings({
                                     preferences.schedule.kind === "weekly"
                                         ? "selected"
                                         : ""
+                                }
+                                aria-pressed={
+                                    preferences.schedule.kind === "weekly"
                                 }
                                 onClick={() =>
                                     void updateSchedule({ kind: "weekly" })
@@ -1782,9 +1864,10 @@ function Settings({
                     <button
                         type="button"
                         className="primary-button"
+                        disabled={savingRetention}
                         onClick={() => void saveRetention()}
                     >
-                        Apply
+                        {savingRetention ? "Applying…" : "Apply"}
                     </button>
                 </div>
             )}

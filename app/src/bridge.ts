@@ -76,16 +76,6 @@ export function requestNative<T>(type: string, payload: unknown = {}) {
     })
 }
 
-export function sendNative(type: string, payload: unknown = {}) {
-    window.webkit?.messageHandlers?.resticNative?.postMessage(
-        JSON.stringify({ type, payload }),
-    )
-}
-
-export function isNativeHost() {
-    return Boolean(window.webkit?.messageHandlers?.resticNative)
-}
-
 export function isPackagedHost() {
     return window.__snapshotterPackaged === true
 }
