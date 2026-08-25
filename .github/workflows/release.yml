@@ -232,7 +232,9 @@ jobs:
                           echo "A new Snapshotter build is here."
                       fi
                       echo
-                      echo "Download the macOS application bundle (zip) or the installer disk image (dmg), both signed and notarized."
+                      echo "<br />"
+                      echo
+                      echo "Install from the DMG below. The app bundle (zip) is also available if you prefer it."
                   } > "$RUNNER_TEMP/body.md"
                   {
                       echo "body<<__BODY__"
