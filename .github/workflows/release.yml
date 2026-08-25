@@ -180,6 +180,17 @@ jobs:
                   mv build/Snapshotter.dmg "build/Snapshotter-${version}-macOS.dmg"
                   ls -lh build/*-macOS.*
 
+            - name: Generate release banner
+              env:
+                  BANNER_VERSION: ${{ steps.meta.outputs.version }}
+                  BANNER_OUT: build/Snapshotter-banner.png
+                  OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+                  OPENCODE_BASE_URL: ${{ secrets.OPENCODE_BASE_URL }}
+                  OPENCODE_MODEL_ID: ${{ secrets.OPENCODE_MODEL_ID }}
+              run: |
+                  set -eu
+                  sh scripts/generate-release-banner.sh
+
             - name: Upload release assets
               uses: actions/upload-artifact@v7
               with:
@@ -187,6 +198,7 @@ jobs:
                   path: |
                       build/Snapshotter-*-macOS.zip
                       build/Snapshotter-*-macOS.dmg
+                      build/Snapshotter-banner.png
                   if-no-files-found: error
 
     release:
@@ -207,6 +219,8 @@ jobs:
                   tag_name: ${{ needs.build.outputs.tag }}
                   name: Snapshotter ${{ needs.build.outputs.version }}
                   body: |
+                      ![Snapshotter ${{ needs.build.outputs.version }}](https://github.com/${{ github.repository }}/releases/download/${{ needs.build.outputs.tag }}/Snapshotter-banner.png)
+
                       ## Snapshotter ${{ needs.build.outputs.version }}
 
                       Download the macOS application bundle (zip) or the installer
@@ -214,4 +228,7 @@ jobs:
                   prerelease: ${{ needs.build.outputs.prerelease }}
                   generate_release_notes: true
                   fail_on_unmatched_files: true
-                  files: release-assets/*
+                  files: |
+                      release-assets/Snapshotter-banner.png
+                      release-assets/*-macOS.zip
+                      release-assets/*-macOS.dmg

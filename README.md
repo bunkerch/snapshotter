@@ -142,6 +142,19 @@ configured:
   `appleid.apple.com` → Sign-In & Security → App-Specific Passwords. No App Store
   Connect API key or access request is needed.
 
+Releases also embed a 16:9 changelog-aware banner rendered in CI
+(`Snapshotter-banner.png`). Without AI it uses a static on-brand template. To
+have the banner designed automatically from the changelog, additionally set:
+
+- `OPENCODE_API_KEY` — key for an OpenAI-compatible model endpoint.
+- `OPENCODE_BASE_URL` — the endpoint base URL (e.g. an OpenAI-compatible API).
+- `OPENCODE_MODEL_ID` — the model ID to send.
+
+When all three are set, the workflow installs `opencode2` and runs it with the
+`design-promotional-banner` skill against the gathered changelog; if that fails,
+the pipeline falls back to the static template so a release never ships without
+a banner.
+
 ## Architecture
 
 The app never shells out to the restic executable. The Go engine is linked into the
