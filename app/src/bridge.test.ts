@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { requestNative, subscribeToBackupProgress } from "./bridge"
+import {
+    requestNative,
+    subscribeToBackupProgress,
+    subscribeToUpdates,
+} from "./bridge"
 
 describe("native bridge", () => {
     afterEach(() => {
@@ -40,6 +44,28 @@ describe("native bridge", () => {
             phase: "backing-up",
             filesDone: 42,
             bytesDone: 2048,
+        })
+        unsubscribe()
+    })
+
+    it("streams native update availability", () => {
+        const listener = vi.fn()
+        const unsubscribe = subscribeToUpdates(listener)
+
+        window.__snapshotterUpdate?.({
+            currentVersion: "0.1.0",
+            latestVersion: "0.2.0",
+            available: true,
+            notes: "Bug fixes",
+            url: "https://example.com/app.zip",
+        })
+
+        expect(listener).toHaveBeenCalledWith({
+            currentVersion: "0.1.0",
+            latestVersion: "0.2.0",
+            available: true,
+            notes: "Bug fixes",
+            url: "https://example.com/app.zip",
         })
         unsubscribe()
     })

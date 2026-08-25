@@ -23,12 +23,14 @@ import {
     isPackagedHost,
     requestNative,
     subscribeToBackupProgress,
+    subscribeToUpdates,
 } from "./bridge"
 import type {
     ApplicationState,
     BackupProgress,
     Snapshot,
     SnapshotEntry,
+    UpdateStatus,
 } from "./model"
 
 type View = "overview" | "snapshots" | "settings"
@@ -39,6 +41,7 @@ export function App() {
     const [error, setError] = useState<string>()
     const [running, setRunning] = useState(false)
     const [backupProgress, setBackupProgress] = useState<BackupProgress>()
+    const [updateStatus, setUpdateStatus] = useState<UpdateStatus>()
     const manualBackupRunning = useRef(false)
 
     const refresh = useCallback(async () => {
@@ -57,6 +60,25 @@ export function App() {
     useEffect(() => {
         void refresh()
     }, [refresh])
+
+    useEffect(() => {
+        const refreshUpdate = async () => {
+            try {
+                setUpdateStatus(
+                    await requestNative<UpdateStatus>("update.status"),
+                )
+            } catch {
+                // The native host reports update availability; stay silent.
+            }
+        }
+        void refreshUpdate()
+        const unsubscribe = subscribeToUpdates((update) =>
+            setUpdateStatus(update),
+        )
+        return () => {
+            unsubscribe()
+        }
+    }, [])
 
     useEffect(
         () =>
@@ -114,6 +136,18 @@ export function App() {
         }
     }
 
+    const installUpdate = async () => {
+        if (!updateStatus?.available) return
+        setUpdateStatus({ ...updateStatus, installing: true })
+        try {
+            await requestNative<boolean>("update.install")
+            setUpdateStatus({ ...updateStatus, installing: true })
+        } catch (requestError) {
+            setUpdateStatus(undefined)
+            setError(message(requestError))
+        }
+    }
+
     const addSources = async () => {
         try {
             setState(
@@ -145,6 +179,13 @@ export function App() {
                 showNavigation={state?.status === "ready"}
             />
             <div className="app-content">
+                {updateStatus?.available && (
+                    <UpdateBanner
+                        update={updateStatus}
+                        onInstall={() => void installUpdate()}
+                        onDismiss={() => setUpdateStatus(undefined)}
+                    />
+                )}
                 {error && (
                     <div className="error-banner" role="alert">
                         {error}
@@ -189,6 +230,50 @@ export function App() {
                 )}
             </div>
         </main>
+    )
+}
+
+function UpdateBanner({
+    update,
+    onInstall,
+    onDismiss,
+}: {
+    update: UpdateStatus
+    onInstall: () => void
+    onDismiss: () => void
+}) {
+    if (update.installing) {
+        return (
+            <div className="update-banner" role="status">
+                <span className="update-banner-text">
+                    <strong>Updating Snapshotter…</strong>
+                    <small>The app will restart when the update is ready</small>
+                </span>
+            </div>
+        )
+    }
+    return (
+        <div className="update-banner" role="status">
+            <div className="update-banner-text">
+                <strong>Snapshotter {update.latestVersion} is available</strong>
+                <small>
+                    You are on {update.currentVersion}
+                    {update.notes ? ` · ${update.notes.slice(0, 90)}` : ""}…
+                </small>
+            </div>
+            <div className="update-banner-actions">
+                <button
+                    type="button"
+                    className="primary-button"
+                    onClick={onInstall}
+                >
+                    Update now
+                </button>
+                <button type="button" onClick={onDismiss}>
+                    Later
+                </button>
+            </div>
+        </div>
     )
 }
 
@@ -1583,6 +1668,19 @@ function Settings({
         }
     }
 
+    const updateAlwaysUpdate = async () => {
+        try {
+            onState(
+                await requestNative<ApplicationState>("alwaysUpdate.set", {
+                    enabled: !preferences.alwaysUpdate,
+                }),
+            )
+            setSettingsError(undefined)
+        } catch (error) {
+            setSettingsError(message(error))
+        }
+    }
+
     const saveRetention = async () => {
         setSavingRetention(true)
         try {
@@ -1745,6 +1843,24 @@ function Settings({
                         aria-label="Start at login"
                         disabled={!packaged}
                         onClick={() => void updateLaunchAtLogin()}
+                    >
+                        <span />
+                    </button>
+                </label>
+                <label>
+                    <span>
+                        <strong>Automatically install updates</strong>
+                        <small>
+                            Check once a day and update without asking
+                        </small>
+                    </span>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={preferences.alwaysUpdate}
+                        className={`switch ${preferences.alwaysUpdate ? "on" : ""}`}
+                        aria-label="Automatically install updates"
+                        onClick={() => void updateAlwaysUpdate()}
                     >
                         <span />
                     </button>
@@ -2035,6 +2151,7 @@ function normalizeState(state: ApplicationState): ApplicationState {
             sources: state.preferences.sources ?? [],
             exclusions: state.preferences.exclusions ?? [],
             selectedApps: state.preferences.selectedApps ?? [],
+            alwaysUpdate: state.preferences.alwaysUpdate ?? false,
         },
     }
 }
