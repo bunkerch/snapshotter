@@ -62,7 +62,11 @@ _run_with_timeout() {
 OPENCODE_TIMEOUT_SEC="${OPENCODE_TIMEOUT_SEC:-900}"
 
 if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${OPENCODE_MODEL_ID:-}" ]; then
-    command -v opencode2 >/dev/null 2>&1 || npm install -g opencode-ai >/dev/null 2>&1 || true
+    if ! command -v opencode2 >/dev/null 2>&1; then
+        echo "banner: installing opencode-ai ..." >&2
+        npm install -g opencode-ai >/dev/null 2>&1 || true
+        export PATH="$(npm config get prefix)/bin:$PATH"
+    fi
     export OPENCODE_API_KEY OPENCODE_BASE_URL OPENCODE_MODEL_ID
     cat > "$WS/prompt.md" <<PROMPT
 You are generating the promotional banner for the Snapshotter release shown in
@@ -78,14 +82,13 @@ sips (see the skill). Finish only once banner.png exists and is non-empty.
 This is a non-interactive CI run: do not ask the user any questions and do not
 stop to wait for input. Work autonomously until done.
 PROMPT
-    ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
-        opencode2 run --auto --dir "$WS" "$(cat "$WS/prompt.md")" )
-    rc=$?
-    if [ "$rc" -eq 0 ] && [ -s "$WS/banner.png" ]; then
+    if ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
+            opencode2 run --auto --dir "$WS" "$(cat "$WS/prompt.md")" ) \
+        && [ -s "$WS/banner.png" ]; then
         cp "$WS/banner.png" "$OUT"
         echo "banner: opencode-generated"
     else
-        echo "banner: opencode generation failed (rc=$rc); keeping fallback" >&2
+        echo "banner: opencode generation failed; keeping fallback" >&2
     fi
 else
     echo "banner: fallback (opencode not configured)" >&2
