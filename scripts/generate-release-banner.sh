@@ -16,20 +16,28 @@ CHANGELOG="$WS/changelog.md"
 {
     echo "# What changed"
     echo
-    if command -v gh >/dev/null 2>&1; then
-        gh pr list --repo "${GITHUB_REPOSITORY:-}" --state merged --limit 25 \
-            --json title,mergedAt --jq 'sort_by(.mergedAt) | reverse | .[].title' 2>/dev/null \
-            | sed 's/^/- /' || true
-    fi
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-        prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-        if [ -n "$prev" ]; then
-            echo
-            echo "# Commits since $prev"
-            echo
-            git log --oneline --no-merges "$prev..HEAD" 2>/dev/null | sed 's/^/- /' || true
+    echo "Release: $VERSION"
+    echo
+    if command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+        if gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 40 \
+            --json title,mergedAt --jq 'sort_by(.mergedAt) | reverse | .[].title' \
+            2>"$WS/pr.err" | sed 's/^/- /'; then
+            :
+        else
+            echo "  [gh pr list failed: $(head -n1 "$WS/pr.err" 2>/dev/null || true)]" >&2
         fi
     fi
+    echo
+    echo "# Recent commits"
+    echo
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        if prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null); then
+            git log --no-color --oneline --no-merges "$prev..HEAD" 2>/dev/null | sed 's/^/- /' || true
+        else
+            git log --no-color --oneline --no-merges -20 2>/dev/null | sed 's/^/- /' || true
+        fi
+    fi
+    rm -f "$WS/pr.err"
 } > "$CHANGELOG"
 
 # --- Prepare workspace (template + version + isolation config + skill) ---
@@ -68,21 +76,62 @@ if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${
         export PATH="$(npm config get prefix)/bin:$PATH"
     fi
     export OPENCODE_API_KEY OPENCODE_BASE_URL OPENCODE_MODEL_ID
+
+    # Provision image tooling the agent may reach for (Pillow via a venv) so
+    # `python3` has PIL. Chrome and sips ship with the runner.
+    if [ ! -x "$WS/.venv/bin/python3" ]; then
+        python3 -m venv "$WS/.venv" 2>/dev/null || true
+        "$WS/.venv/bin/python3" -m pip install --quiet --disable-pip-version-check Pillow 2>/dev/null || true
+    fi
+    export PATH="$WS/.venv/bin:$PATH"
+
     cat > "$WS/prompt.md" <<PROMPT
-You are generating the promotional banner for the Snapshotter release shown in
-$WS/changelog.md.
+You are generating the promotional banner for the Snapshotter release described
+in $WS/changelog.md. Version to feature: $VERSION.
 
-Load the design-promotional-banner skill and follow it. Adapt $WS/index.html in
-place so the banner hero reflects the changelog (a milestone if there is one,
-otherwise the bug fixes / polish). Vary the accent treatment tastefully while
-staying recognisably on-brand. Do not ship the default layout: change the
-hero message, copy, and accent to match this release's changelog so the result
-cannot be confused with the template. Then render the final 1600x900 image to
-banner.png in the workspace using headless Chrome at 2x and downscaling with
-sips (see the skill). Finish only once banner.png exists and is non-empty.
+A skill file with detailed rules is at
+$WS/skills/design-promotional-banner/SKILL.md — read it and follow it. The key
+requirements are restated here so you can satisfy them regardless of tooling.
 
-This is a non-interactive CI run: do not ask the user any questions and do not
-stop to wait for input. Work autonomously until done.
+1. CHANGELOG-DRIVEN HERO. The single message must come from changelog.md. If it
+   names a concrete user-facing feature or milestone (new capability, new
+   storage backend, new secret store, notable integration), that is the hero.
+   If it is only fixes/CI/polish, make the message "Bug fixes and polish" —
+   concrete, not noise. Do not invent features, numbers, dates, or metrics.
+
+2. On-brand but not the template. Adapt $WS/index.html in place. Keep the kit
+   recognizably Snapshotter: near-black background, light text, one accent
+   (base #0a84ff, but shift it to fit the changelog/milestone), the rounded
+   shield mark, a system font stack. You MUST change the hero message, copy,
+   and accent so the result cannot be confused with the default fallback.
+
+3. Design rules. One message, three levels max (hook, support line, CTA).
+   Hierarchy by size/weight/colour, not boxes/borders/shadows. Headline under 6
+   words, support under 12, 1.5x size separation, headline line-height ~1.1,
+   letter-spacing -0.02em. Keep content inside ~5% padding. One CTA, verb-first,
+   specific outcome. Contrast: 7:1 headline, 4.5:1 body. Fix a calm zone behind
+   the type. No hover/scroll/position:fixed; it is a still snapshot. Test with
+   filter: grayscale(1) and at 25% scale.
+
+4. ANTI-SLOP COPY. No empty verbs (elevate, unlock, transform, empower,
+   streamline), no "the future of X", no negative parallelism ("not just X"),
+   no aspiration filler, no adjective stacks, no invented numbers, zero
+   exclamation marks, zero emoji, no questions answerable with "no", no
+   second-person flattery. Headline states the concrete change.
+
+5. RENDER. Produce banner.png (1600x900) in the workspace:
+   - Render $WS/index.html with headless Chrome at 2x and downscale with sips:
+       "$CHROME" --headless --disable-gpu --hide-scrollbars \
+         --force-device-scale-factor=2 --window-size=1600,900 \
+         --screenshot=banner.png index.html
+       sips -z 900 1600 banner.png
+   - Available tools: Chrome (above path), sips, and a Python 3 venv with Pillow
+     (use `python3` — PIL is importable). ImageMagick is NOT installed; do not
+     call `magick`/`convert`. Do not `pip install` into the system python.
+   - Verify banner.png exists and is non-empty before finishing.
+
+6. NON-INTERACTIVE. This is an unattended CI run: never ask the user anything,
+   never block waiting for input; work autonomously to completion.
 PROMPT
     if ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
             opencode2 run --standalone --auto --thinking \
