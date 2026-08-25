@@ -75,7 +75,9 @@ $WS/changelog.md.
 Load the design-promotional-banner skill and follow it. Adapt $WS/index.html in
 place so the banner hero reflects the changelog (a milestone if there is one,
 otherwise the bug fixes / polish). Vary the accent treatment tastefully while
-staying recognisably on-brand. Then render the final 1600x900 image to
+staying recognisably on-brand. Do not ship the default layout: change the
+hero message, copy, and accent to match this release's changelog so the result
+cannot be confused with the template. Then render the final 1600x900 image to
 banner.png in the workspace using headless Chrome at 2x and downscaling with
 sips (see the skill). Finish only once banner.png exists and is non-empty.
 
@@ -83,14 +85,13 @@ This is a non-interactive CI run: do not ask the user any questions and do not
 stop to wait for input. Work autonomously until done.
 PROMPT
     if ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
-            opencode2 run --standalone --auto --log-level error \
-                "$(cat "$WS/prompt.md")" >"$WS/opencode.log" 2>&1 ) \
+            opencode2 run --standalone --auto --thinking \
+                "$(cat "$WS/prompt.md")" 2>&1 ) \
         && [ -s "$WS/banner.png" ]; then
         cp "$WS/banner.png" "$OUT"
         echo "banner: opencode-generated"
     else
         echo "banner: opencode generation failed; keeping fallback" >&2
-        tail -n 25 "$WS/opencode.log" 2>/dev/null >&2 || true
     fi
 else
     echo "banner: fallback (opencode not configured)" >&2
