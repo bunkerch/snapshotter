@@ -235,9 +235,9 @@ jobs:
                       echo "Download the macOS application bundle (zip) or the installer disk image (dmg), both signed and notarized."
                   } > "$RUNNER_TEMP/body.md"
                   {
-                      echo "body<<'BODY'"
+                      echo "body<<__BODY__"
                       cat "$RUNNER_TEMP/body.md"
-                      echo "BODY"
+                      echo "__BODY__"
                   } >> "$GITHUB_OUTPUT"
 
             - name: Create GitHub Release
