@@ -47,6 +47,11 @@ final class EngineBridge: @unchecked Sendable {
         closeEngine = try Self.loadSymbol("SnapshotterClose", from: library)
         freeResponse = try Self.loadSymbol("SnapshotterFree", from: library)
 
+        let preferencesPath = try Self.preferencesURL().path
+        _ = try consume(preferencesPath.withCString { openEngine($0) })
+    }
+
+    static func preferencesURL() throws -> URL {
         let supportDirectory = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -54,8 +59,7 @@ final class EngineBridge: @unchecked Sendable {
             create: true
         ).appendingPathComponent("Snapshotter", isDirectory: true)
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
-        let preferencesPath = supportDirectory.appendingPathComponent("preferences.json").path
-        _ = try consume(preferencesPath.withCString { openEngine($0) })
+        return supportDirectory.appendingPathComponent("preferences.json")
     }
 
     deinit {
