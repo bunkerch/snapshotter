@@ -74,8 +74,8 @@ request must state whether AI assistance was used. In the pull request
 description, always:
 
 - name the model and agent harness used when the change was made with AI (for
-  example, "OpenCode with Anthropic Claude", "OpenCode with GPT-5.2", "Cursor",
-  "Claude Code"), or
+  example, "OpenCode with Anthropic Claude Opus 5", "Codex with OpenAI
+  GPT-5.6-Sol", "DeepSeek V4 Flash"), or
 - explicitly state that the change was made manually, with no AI assistance.
 
 ## CI and releases
