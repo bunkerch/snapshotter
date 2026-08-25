@@ -64,7 +64,7 @@ OPENCODE_TIMEOUT_SEC="${OPENCODE_TIMEOUT_SEC:-900}"
 if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${OPENCODE_MODEL_ID:-}" ]; then
     if ! command -v opencode2 >/dev/null 2>&1; then
         echo "banner: installing opencode-ai ..." >&2
-        npm install -g opencode-ai >/dev/null 2>&1 || true
+        npm install -g @opencode-ai/cli >/dev/null 2>&1 || true
         export PATH="$(npm config get prefix)/bin:$PATH"
     fi
     export OPENCODE_API_KEY OPENCODE_BASE_URL OPENCODE_MODEL_ID
