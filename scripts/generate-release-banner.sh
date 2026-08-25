@@ -43,6 +43,24 @@ sed "s/__VERSION__/$(printf '%s' "$VERSION" | sed 's/[&/\]/\\&/g')/g" \
 sips -z "$SIZE_H" "$SIZE_W" "$OUT" --out "$OUT" >/dev/null 2>&1
 
 # --- AI banner: only when a provider is configured ---
+# Non-interactive: never block on a user question, and cap the run so a
+# misbehaving agent cannot hang the job.
+_run_with_timeout() {
+    secs=$1
+    shift
+    set +e
+    "$@" &
+    pid=$!
+    ( sleep "$secs" && kill "$pid" 2>/dev/null ) &
+    killer=$!
+    wait "$pid"
+    rc=$?
+    kill "$killer" 2>/dev/null
+    set -e
+    return "$rc"
+}
+OPENCODE_TIMEOUT_SEC="${OPENCODE_TIMEOUT_SEC:-900}"
+
 if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${OPENCODE_MODEL_ID:-}" ]; then
     command -v opencode2 >/dev/null 2>&1 || npm install -g opencode-ai >/dev/null 2>&1 || true
     export OPENCODE_API_KEY OPENCODE_BASE_URL OPENCODE_MODEL_ID
@@ -56,13 +74,18 @@ otherwise the bug fixes / polish). Vary the accent treatment tastefully while
 staying recognisably on-brand. Then render the final 1600x900 image to
 banner.png in the workspace using headless Chrome at 2x and downscaling with
 sips (see the skill). Finish only once banner.png exists and is non-empty.
+
+This is a non-interactive CI run: do not ask the user any questions and do not
+stop to wait for input. Work autonomously until done.
 PROMPT
-    if (cd "$WS" && opencode2 run --auto --dir "$WS" "$(cat "$WS/prompt.md")" >/dev/null 2>&1) \
-        && [ -s "$WS/banner.png" ]; then
+    ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
+        opencode2 run --auto --dir "$WS" "$(cat "$WS/prompt.md")" )
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ -s "$WS/banner.png" ]; then
         cp "$WS/banner.png" "$OUT"
         echo "banner: opencode-generated"
     else
-        echo "banner: opencode generation failed; keeping fallback" >&2
+        echo "banner: opencode generation failed (rc=$rc); keeping fallback" >&2
     fi
 else
     echo "banner: fallback (opencode not configured)" >&2

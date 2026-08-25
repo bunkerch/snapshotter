@@ -8,6 +8,7 @@
         { "action": "edit", "resource": "*", "effect": "allow" },
         { "action": "read", "resource": "*", "effect": "allow" },
         { "action": "skill", "resource": "design-promotional-banner", "effect": "allow" },
+        { "action": "question", "resource": "*", "effect": "deny" },
         { "action": "webfetch", "resource": "*", "effect": "deny" }
     ],
     "providers": {
