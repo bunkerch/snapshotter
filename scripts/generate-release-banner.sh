@@ -83,12 +83,14 @@ This is a non-interactive CI run: do not ask the user any questions and do not
 stop to wait for input. Work autonomously until done.
 PROMPT
     if ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
-            opencode2 run --auto --dir "$WS" "$(cat "$WS/prompt.md")" ) \
+            opencode2 run --standalone --auto --log-level error \
+                "$(cat "$WS/prompt.md")" >"$WS/opencode.log" 2>&1 ) \
         && [ -s "$WS/banner.png" ]; then
         cp "$WS/banner.png" "$OUT"
         echo "banner: opencode-generated"
     else
         echo "banner: opencode generation failed; keeping fallback" >&2
+        tail -n 25 "$WS/opencode.log" 2>/dev/null >&2 || true
     fi
 else
     echo "banner: fallback (opencode not configured)" >&2
