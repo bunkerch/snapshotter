@@ -35,7 +35,7 @@ Place TypeScript tests beside their subject as `*.test.ts(x)` and Go tests as `*
 
 ## Commit & Pull Request Guidelines
 
-Use short Conventional Commit subjects matching history, such as `feat: list embedded restic snapshots` or `fix: resolve Swift package entry point`. Keep commits focused and allow the Husky/lint-staged hook to run. Pull requests should explain behavior and architecture changes, list verification commands, link relevant issues, and include screenshots for visible UI changes.
+Use short Conventional Commit subjects matching history, such as `feat: list embedded restic snapshots` or `fix: resolve Swift package entry point`. Keep commits focused and allow the Husky/lint-staged hook to run. Pull requests should explain behavior and architecture changes, list verification commands, link relevant issues, and include screenshots for visible UI changes. Every pull request description must state whether AI assistance was used: name the model and agent harness when it was (for example, "OpenCode with Anthropic Claude Opus 5"), or explicitly state the change was made manually.
 
 ## Security & Architecture
 
