@@ -64,8 +64,17 @@ final class Updater: @unchecked Sendable {
             if last > 0, now.timeIntervalSince1970 - last < Self.checkInterval {
                 return
             }
-            self.performCheck()
-            self.defaults.set(now.timeIntervalSince1970, forKey: Self.lastCheckKey)
+            self.runCheck(autoInstall: true, markChecked: now)
+        }
+    }
+
+    /// Runs an immediate, user-initiated check. It bypasses the daily throttle
+    /// and only reports availability (it never automatically installs) so the
+    /// settings screen can show the result without surprising the user.
+    func checkNow(completion: @escaping @Sendable (AvailableUpdate) -> Void) {
+        queue.async {
+            self.runCheck(autoInstall: false, markChecked: Date())
+            completion(self.statusSnapshot())
         }
     }
 
@@ -96,7 +105,12 @@ final class Updater: @unchecked Sendable {
 
     // MARK: - Check
 
-    private func performCheck() {
+    private func runCheck(autoInstall: Bool, markChecked: Date) {
+        performCheck(autoInstall: autoInstall)
+        defaults.set(markChecked.timeIntervalSince1970, forKey: Self.lastCheckKey)
+    }
+
+    private func performCheck(autoInstall: Bool) {
         let currentVersion = currentVersion()
         do {
             guard let latestRelease = try fetchLatestRelease() else {
@@ -131,7 +145,7 @@ final class Updater: @unchecked Sendable {
                 url: downloadURL?.absoluteString
             )
             self.applyStatus(update)
-            if self.alwaysUpdateEnabled(), !snapshotterOperationInProgress() {
+            if autoInstall, self.alwaysUpdateEnabled(), !snapshotterOperationInProgress() {
                 do {
                     try self.downloadAndInstall(update)
                 } catch {

@@ -137,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         switch request.type {
         case "app.quit": NSApp.terminate(nil)
         case "update.status": Backend.shared.updateStatus(requestID: request.id, webView: message.webView)
+        case "update.check": Backend.shared.checkForUpdate(requestID: request.id, webView: message.webView)
         case "update.install": Backend.shared.installUpdate(requestID: request.id, webView: message.webView)
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.configure.choose": chooseRepository(request: request, webView: message.webView)
@@ -649,6 +650,13 @@ private final class Backend: @unchecked Sendable {
     func updateStatus(requestID: String?, webView: WKWebView?) {
         let reference = WebViewReference(webView)
         Updater.shared.status { update in
+            Self.respondData(update.dictionary, requestID: requestID, reference: reference)
+        }
+    }
+
+    func checkForUpdate(requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        Updater.shared.checkNow { update in
             Self.respondData(update.dictionary, requestID: requestID, reference: reference)
         }
     }
