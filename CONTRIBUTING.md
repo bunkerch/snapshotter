@@ -78,9 +78,6 @@ description, always:
   "Claude Code"), or
 - explicitly state that the change was made manually, with no AI assistance.
 
-This follows the convention set by
-[`prevalentWare/opencode-goal-plugin`](https://github.com/prevalentWare/opencode-goal-plugin).
-
 ## CI and releases
 
 - Every pull request runs the frontend tests, production build, lint, and Go
