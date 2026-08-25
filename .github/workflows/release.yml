@@ -202,6 +202,7 @@ jobs:
                       build/Snapshotter-*-macOS.zip
                       build/Snapshotter-*-macOS.dmg
                       build/Snapshotter-banner.png
+                      build/release-summary.txt
                   if-no-files-found: error
 
     release:
@@ -216,18 +217,35 @@ jobs:
                   name: snapshotter-release
                   path: release-assets
 
+            - name: Build release body
+              id: body
+              run: |
+                  set -eu
+                  {
+                      echo "![Snapshotter ${{ needs.build.outputs.version }}](https://github.com/${{ github.repository }}/releases/download/${{ needs.build.outputs.tag }}/Snapshotter-banner.png)"
+                      echo
+                      echo "## Snapshotter ${{ needs.build.outputs.version }}"
+                      echo
+                      if [ -s release-assets/release-summary.txt ]; then
+                          sed 's/^/> /' release-assets/release-summary.txt
+                      else
+                          echo "A new Snapshotter build is here."
+                      fi
+                      echo
+                      echo "Download the macOS application bundle (zip) or the installer disk image (dmg), both signed and notarized."
+                  } > "$RUNNER_TEMP/body.md"
+                  {
+                      echo "body<<'BODY'"
+                      cat "$RUNNER_TEMP/body.md"
+                      echo "BODY"
+                  } >> "$GITHUB_OUTPUT"
+
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v3
               with:
                   tag_name: ${{ needs.build.outputs.tag }}
                   name: Snapshotter ${{ needs.build.outputs.version }}
-                  body: |
-                      ![Snapshotter ${{ needs.build.outputs.version }}](https://github.com/${{ github.repository }}/releases/download/${{ needs.build.outputs.tag }}/Snapshotter-banner.png)
-
-                      ## Snapshotter ${{ needs.build.outputs.version }}
-
-                      Download the macOS application bundle (zip) or the installer
-                      disk image (dmg), both signed and notarized.
+                  body: ${{ steps.body.outputs.body }}
                   prerelease: ${{ needs.build.outputs.prerelease }}
                   generate_release_notes: true
                   fail_on_unmatched_files: true

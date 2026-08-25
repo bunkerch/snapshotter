@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="${BANNER_OUT:-$ROOT/build/Snapshotter-banner.png}"
+SUMMARY_OUT="${SUMMARY_OUT:-$ROOT/build/release-summary.txt}"
 VERSION="${BANNER_VERSION:-0.1.0}"
 WS="$ROOT/build/banner-workspace"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -150,9 +151,45 @@ PROMPT
     else
         echo "banner: opencode generation failed; keeping fallback" >&2
     fi
+
+    # --- AI release summary (playful prose derived from the changelog) ---
+    cat > "$WS/summary-prompt.md" <<SPROMPT
+You are writing the opening summary for the Snapshotter release notes.
+
+Read the change list at $WS/changelog.md (PR titles and commit titles) and
+write a short, warm, slightly playful summary of what this release is about.
+
+Rules:
+- 2 to 4 sentences max. Plain prose, no markdown, no bullets, no heading.
+- Reflect what actually changed. For a mostly-bug-fix release, a light tone is
+  welcome (such as a nod to squashing bugs). If there is a standout feature or
+  milestone, lead with that.
+- Do not invent features, numbers, dates, or metrics. Do not mention AI or
+  build tooling unless it is genuinely user-facing.
+- No exclamation marks, no emoji, no second-person flattery.
+Write the final text only, then save exactly that text (nothing else) to
+$WS/release-summary.txt.
+SPROMPT
+    if ( cd "$WS" && _run_with_timeout "$OPENCODE_TIMEOUT_SEC" \
+            opencode2 run --standalone --auto \
+                "$(cat "$WS/summary-prompt.md")" 2>&1 ) \
+        && [ -s "$WS/release-summary.txt" ]; then
+        echo "summary: opencode-generated"
+    else
+        echo "summary: AI failed; using fallback text" >&2
+    fi
 else
     echo "banner: fallback (opencode not configured)" >&2
 fi
 
+# --- Ensure a summary file always exists (fallback when AI unavailable) ---
+mkdir -p "$(dirname "$SUMMARY_OUT")"
+if [ -s "$WS/release-summary.txt" ]; then
+    cp "$WS/release-summary.txt" "$SUMMARY_OUT"
+else
+    printf 'A new Snapshotter build is here — the full change list is below.\n' > "$SUMMARY_OUT"
+fi
+
 test -s "$OUT" || { echo "failed to produce $OUT" >&2; exit 1; }
 echo "banner: $OUT"
+echo "summary: $SUMMARY_OUT"
