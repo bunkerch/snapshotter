@@ -66,9 +66,9 @@ the heroes are those fixes.
 - Over a gradient or pattern, check contrast against the lightest and darkest
   point behind the text.
 - Do not use pill badges, borders, or text shadows to patch contrast.
-- One CTA. Verb-first, specific outcome, solid fill, placed where the reading
-  path ends. Whatever it promises must be what the release delivers
-  (e.g. "Download" pointing at the new DMG).
+- One CTA: none. The banner is a static image rendered inside release notes and
+  is not clickable, so do not draw a call-to-action button or pill. End the
+  composition with the version or a short neutral tagline instead.
 
 ## Anti-slop rules for the copy (banned patterns)
 

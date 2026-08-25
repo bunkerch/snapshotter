@@ -113,13 +113,15 @@ requirements are restated here so you can satisfy them regardless of tooling.
    shield mark, a system font stack. You MUST change the hero message, copy,
    and accent so the result cannot be confused with the default fallback.
 
-3. Design rules. One message, three levels max (hook, support line, CTA).
-   Hierarchy by size/weight/colour, not boxes/borders/shadows. Headline under 6
-   words, support under 12, 1.5x size separation, headline line-height ~1.1,
-   letter-spacing -0.02em. Keep content inside ~5% padding. One CTA, verb-first,
-   specific outcome. Contrast: 7:1 headline, 4.5:1 body. Fix a calm zone behind
-   the type. No hover/scroll/position:fixed; it is a still snapshot. Test with
-   filter: grayscale(1) and at 25% scale.
+3. Design rules. One message, at most a hook + support line. Hierarchy by
+   size/weight/colour, not boxes/borders/shadows. Headline under 6 words,
+   support under 12, 1.5x size separation, headline line-height ~1.1,
+   letter-spacing -0.02em. Keep content inside ~5% padding. NO call-to-action
+   button or pill — the banner is a static image rendered in release notes and
+   is never a link; end the composition with the version or a short neutral
+   tagline instead of a button. Contrast: 7:1 headline, 4.5:1 body. Fix a calm
+   zone behind the type. No hover/scroll/position:fixed; it is a still
+   snapshot. Test with filter: grayscale(1) and at 25% scale.
 
 4. ANTI-SLOP COPY. No empty verbs (elevate, unlock, transform, empower,
    streamline), no "the future of X", no negative parallelism ("not just X"),
