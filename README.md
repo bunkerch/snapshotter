@@ -135,9 +135,12 @@ configured:
 - `MACOS_CERTIFICATE_PWD` — the `.p12` password.
 - `MACOS_CERTIFICATE_ID` — the identity name, e.g.
   `Developer ID Application: Snapshotter (TEAMID)`.
-- `APPLE_API_KEY` — App Store Connect API key (`.p8`) contents.
-- `APPLE_API_KEY_ID` — the API key ID (the `AuthKey_*.p8` name prefix).
-- `APPLE_API_ISSUER_ID` — the API key issuer ID.
+- `APPLE_ID` — the Apple ID email used for notarization.
+- `APPLE_TEAM_ID` — the 10-character team ID (also shown on the Developer ID
+  certificate), e.g. `CWYUH669FD`.
+- `APPLE_APP_PASSWORD` — an App Store account **app-specific password** created at
+  `appleid.apple.com` → Sign-In & Security → App-Specific Passwords. No App Store
+  Connect API key or access request is needed.
 
 ## Architecture
 

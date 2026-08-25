@@ -66,12 +66,12 @@ jobs:
                   MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
                   MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
                   MACOS_CERTIFICATE_ID: ${{ secrets.MACOS_CERTIFICATE_ID }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-                  APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+                  APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
               run: |
                   set -eu
-                  declare -a required=(MACOS_CERTIFICATE MACOS_CERTIFICATE_PWD MACOS_CERTIFICATE_ID APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID)
+                  declare -a required=(MACOS_CERTIFICATE MACOS_CERTIFICATE_PWD MACOS_CERTIFICATE_ID APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD)
                   declare -a missing=()
                   for name in "${required[@]}"; do
                       if [ -z "${!name:-}" ]; then missing+=("$name"); fi
@@ -131,9 +131,9 @@ jobs:
               env:
                   MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
                   MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-                  APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+                  APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
               run: |
                   set -eu
                   keychain_path="$RUNNER_TEMP/snapshotter-signing.keychain-db"
@@ -157,11 +157,10 @@ jobs:
                   security list-keychains -d user -s "$keychain_path"
                   security default-keychain -s "$keychain_path"
 
-                  printf '%s\n' "$APPLE_API_KEY" > "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
                   xcrun notarytool store-credentials snapshotter-notary \
-                      --api-key "$APPLE_API_KEY_ID" \
-                      --api-issuer "$APPLE_API_ISSUER_ID" \
-                      --key "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8" \
+                      --apple-id "$APPLE_ID" \
+                      --team-id "$APPLE_TEAM_ID" \
+                      --password "$APPLE_APP_PASSWORD" \
                       --keychain "$keychain_path"
 
             - name: Build and package signable artifacts (.app and .dmg)
