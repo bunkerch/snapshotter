@@ -123,6 +123,31 @@ func TestExclusionsAndApplicationPresetsPersist(t *testing.T) {
 	}
 }
 
+func TestAlwaysUpdatePersistsAcrossStateLoads(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+
+	initial := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))
+	if !initial.OK {
+		t.Fatal(initial.Error)
+	}
+	if initial.Data.(applicationState).Preferences.AlwaysUpdate {
+		t.Fatal("always update should default to disabled")
+	}
+
+	updated := runtime.handle(context.Background(), []byte(`{"type":"alwaysUpdate.set","payload":{"enabled":true}}`))
+	if !updated.OK {
+		t.Fatal(updated.Error)
+	}
+	if !updated.Data.(applicationState).Preferences.AlwaysUpdate {
+		t.Fatalf("always update was not persisted: %#v", updated.Data.(applicationState).Preferences)
+	}
+
+	reloaded := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))
+	if !reloaded.OK || !reloaded.Data.(applicationState).Preferences.AlwaysUpdate {
+		t.Fatalf("always update did not survive a reload: %#v", reloaded)
+	}
+}
+
 func TestStateStartsUnconfiguredAndPersistsSources(t *testing.T) {
 	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
 	initial := runtime.handle(context.Background(), []byte(`{"type":"state.get"}`))

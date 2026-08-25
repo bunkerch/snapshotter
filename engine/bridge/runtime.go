@@ -137,6 +137,8 @@ func (r *runtime) handle(ctx context.Context, raw []byte) response {
 		data, err = r.setRetention(req.Payload)
 	case "launchAtLogin.set":
 		data, err = r.setLaunchAtLogin(req.Payload)
+	case "alwaysUpdate.set":
+		data, err = r.setAlwaysUpdate(req.Payload)
 	case "repository.check":
 		data, err = r.checkRepository(ctx)
 	case "repository.repairIndex":
@@ -312,6 +314,24 @@ func (r *runtime) setLaunchAtLogin(payload json.RawMessage) (applicationState, e
 		return applicationState{}, err
 	}
 	preferences.LaunchAtLogin = input.Enabled
+	if err := r.store.Save(preferences); err != nil {
+		return applicationState{}, err
+	}
+	return r.state(context.Background())
+}
+
+func (r *runtime) setAlwaysUpdate(payload json.RawMessage) (applicationState, error) {
+	var input struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return applicationState{}, fmt.Errorf("decode always update: %w", err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		return applicationState{}, err
+	}
+	preferences.AlwaysUpdate = input.Enabled
 	if err := r.store.Save(preferences); err != nil {
 		return applicationState{}, err
 	}

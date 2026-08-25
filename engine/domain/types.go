@@ -113,6 +113,7 @@ type Preferences struct {
 	Schedule      Schedule        `json:"schedule"`
 	Retention     RetentionPolicy `json:"retention"`
 	LaunchAtLogin bool            `json:"launchAtLogin"`
+	AlwaysUpdate  bool            `json:"alwaysUpdate"`
 }
 
 func DefaultPreferences() Preferences {
@@ -147,6 +148,7 @@ func DefaultPreferences() Preferences {
 			Monthly: 12,
 		},
 		LaunchAtLogin: true,
+		AlwaysUpdate:  false,
 	}
 }
 
