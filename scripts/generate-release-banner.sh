@@ -85,6 +85,13 @@ if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${
     fi
     export PATH="$WS/.venv/bin:$PATH"
 
+    # The model often reaches for ImageMagick; install magick/convert so that
+    # path works too. Best-effort (brew may be slow) — sips/Pillow still cover it.
+    if ! command -v magick >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
+        echo "banner: installing imagemagick ..." >&2
+        brew install imagemagick >/dev/null 2>&1 || true
+    fi
+
     cat > "$WS/prompt.md" <<PROMPT
 You are generating the promotional banner for the Snapshotter release described
 in $WS/changelog.md. Version to feature: $VERSION.
@@ -125,9 +132,10 @@ requirements are restated here so you can satisfy them regardless of tooling.
          --force-device-scale-factor=2 --window-size=1600,900 \
          --screenshot=banner.png index.html
        sips -z 900 1600 banner.png
-   - Available tools: Chrome (above path), sips, and a Python 3 venv with Pillow
-     (use `python3` — PIL is importable). ImageMagick is NOT installed; do not
-     call `magick`/`convert`. Do not `pip install` into the system python.
+   - Available tools: Chrome (above path), sips, ImageMagick
+     (magick/convert), and a Python 3 venv with Pillow (use python3 — PIL is
+     importable). Prefer sips/Pillow for resizing; use whatever works. Do not
+     pip install into the system python.
    - Verify banner.png exists and is non-empty before finishing.
 
 6. NON-INTERACTIVE. This is an unattended CI run: never ask the user anything,
