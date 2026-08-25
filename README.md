@@ -114,6 +114,31 @@ CODESIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
 NOTARY_PROFILE="snapshotter-notary" make dmg
 ```
 
+## Releases (GitHub Actions)
+
+The `.github/workflows/release.yml` workflow builds a signed and notarized
+`.app` (zipped) and `.dmg` on a `macos-14` runner and publishes a GitHub Release.
+
+Two channels are supported, selected automatically from the tag:
+
+- `v1.2.3` — stable release.
+- `v1.2.3-rc.1`, `v1.2.3-beta.1`, ... (any tag with a hyphen pre-release part)
+  — pre-release.
+
+You can also trigger the workflow manually (**Actions → release → Run workflow**)
+to build a pre-release from any ref, optionally pinning a tag via the `tag` input.
+
+Full signing is required and only works when these repository secrets are
+configured:
+
+- `MACOS_CERTIFICATE` — base64 of a `Developer ID Application` certificate `.p12`.
+- `MACOS_CERTIFICATE_PWD` — the `.p12` password.
+- `MACOS_CERTIFICATE_ID` — the identity name, e.g.
+  `Developer ID Application: Snapshotter (TEAMID)`.
+- `APPLE_API_KEY` — App Store Connect API key (`.p8`) contents.
+- `APPLE_API_KEY_ID` — the API key ID (the `AuthKey_*.p8` name prefix).
+- `APPLE_API_ISSUER_ID` — the API key issuer ID.
+
 ## Architecture
 
 The app never shells out to the restic executable. The Go engine is linked into the

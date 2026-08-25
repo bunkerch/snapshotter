@@ -15,7 +15,14 @@ else
 fi
 
 cd "$ROOT"
-zsh -ic 'pnpm build'
+# Interactive zsh resolves the locally-installed pnpm safe-chain wrapper on a
+# developer machine. In CI (GitHub Actions sets CI=true) there is no such layer,
+# so run plain pnpm against the runner's PATH instead.
+if [ "${CI:-}" = "true" ]; then
+    pnpm build
+else
+    zsh -ic 'pnpm build'
+fi
 make engine
 swift build --package-path macos -c release
 
