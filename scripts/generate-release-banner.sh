@@ -81,7 +81,7 @@ if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${
     # `python3` has PIL. Chrome and sips ship with the runner.
     if [ ! -x "$WS/.venv/bin/python3" ]; then
         python3 -m venv "$WS/.venv" 2>/dev/null || true
-        "$WS/.venv/bin/python3" -m pip install --quiet --disable-pip-version-check Pillow 2>/dev/null || true
+        "$WS/.venv/bin/python3" -m pip install --quiet --disable-pip-version-check Pillow numpy 2>/dev/null || true
     fi
     export PATH="$WS/.venv/bin:$PATH"
 
