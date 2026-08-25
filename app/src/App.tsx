@@ -226,6 +226,7 @@ export function App() {
                     <Settings
                         state={state}
                         onState={(next) => setState(normalizeState(next))}
+                        onUpdateStatus={setUpdateStatus}
                     />
                 )}
             </div>
@@ -1622,9 +1623,11 @@ function SnapshotBrowser({
 function Settings({
     state,
     onState,
+    onUpdateStatus,
 }: {
     state: ApplicationState
     onState: (state: ApplicationState) => void
+    onUpdateStatus: (status: UpdateStatus) => void
 }) {
     const preferences = state.preferences
     const [retentionOpen, setRetentionOpen] = useState(false)
@@ -1637,6 +1640,8 @@ function Settings({
     const [disconnecting, setDisconnecting] = useState(false)
     const [savingRetention, setSavingRetention] = useState(false)
     const [settingsError, setSettingsError] = useState<string>()
+    const [checkingUpdate, setCheckingUpdate] = useState(false)
+    const [updateMessage, setUpdateMessage] = useState<string>()
     const packaged = isPackagedHost()
 
     const updateSchedule = async (
@@ -1678,6 +1683,24 @@ function Settings({
             setSettingsError(undefined)
         } catch (error) {
             setSettingsError(message(error))
+        }
+    }
+
+    const checkForUpdate = async () => {
+        setCheckingUpdate(true)
+        setUpdateMessage(undefined)
+        try {
+            const update = await requestNative<UpdateStatus>("update.check")
+            onUpdateStatus(update)
+            setUpdateMessage(
+                update.available
+                    ? `Update ${update.latestVersion} is available`
+                    : "You're up to date",
+            )
+        } catch (error) {
+            setUpdateMessage(message(error))
+        } finally {
+            setCheckingUpdate(false)
         }
     }
 
@@ -1847,24 +1870,6 @@ function Settings({
                         <span />
                     </button>
                 </label>
-                <label>
-                    <span>
-                        <strong>Automatically install updates</strong>
-                        <small>
-                            Check once a day and update without asking
-                        </small>
-                    </span>
-                    <button
-                        type="button"
-                        role="switch"
-                        aria-checked={preferences.alwaysUpdate}
-                        className={`switch ${preferences.alwaysUpdate ? "on" : ""}`}
-                        aria-label="Automatically install updates"
-                        onClick={() => void updateAlwaysUpdate()}
-                    >
-                        <span />
-                    </button>
-                </label>
                 {preferences.schedule.enabled && (
                     <div className="schedule-editor">
                         <div className="schedule-kind">
@@ -2028,6 +2033,47 @@ function Settings({
                         {repairing ? "Cancel repair" : "Repair index"}
                     </strong>
                     <small>Rebuild repository metadata from stored packs</small>
+                </span>
+            </button>
+            <h3>Updates</h3>
+            <div className="settings-card">
+                <label>
+                    <span>
+                        <strong>Automatically install updates</strong>
+                        <small>
+                            Check once a day and update without asking
+                        </small>
+                    </span>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={preferences.alwaysUpdate}
+                        className={`switch ${preferences.alwaysUpdate ? "on" : ""}`}
+                        aria-label="Automatically install updates"
+                        onClick={() => void updateAlwaysUpdate()}
+                    >
+                        <span />
+                    </button>
+                </label>
+            </div>
+            <button
+                type="button"
+                className="setting-row"
+                onClick={() => void checkForUpdate()}
+                disabled={checkingUpdate}
+            >
+                {checkingUpdate ? (
+                    <LoaderCircle className="spinner" size={17} />
+                ) : (
+                    <Download size={17} />
+                )}
+                <span>
+                    <strong>
+                        {checkingUpdate
+                            ? "Checking for updates…"
+                            : "Check for updates"}
+                    </strong>
+                    {updateMessage && <small>{updateMessage}</small>}
                 </span>
             </button>
             <h3>About</h3>

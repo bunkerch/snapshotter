@@ -536,4 +536,34 @@ describe("Snapshotter app", () => {
             })
         })
     })
+
+    it("checks for updates from Settings and reports the result", async () => {
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "state.get") return readyState
+            if (type === "update.check") {
+                return {
+                    currentVersion: "1.0.1",
+                    latestVersion: "1.0.1",
+                    available: false,
+                }
+            }
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            within(screen.getByRole("navigation")).getByRole("button", {
+                name: "Settings",
+            }),
+        )
+
+        fireEvent.click(
+            screen.getByRole("button", { name: /Check for updates/ }),
+        )
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("update.check")
+        })
+        expect(await screen.findByText("You're up to date")).toBeTruthy()
+    })
 })
