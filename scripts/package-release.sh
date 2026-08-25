@@ -21,7 +21,7 @@ else
     fi
 fi
 
-CODESIGN_IDENTITY=$IDENTITY sh "$ROOT/scripts/package-macos.sh"
+VERSION=${VERSION:-} CODESIGN_IDENTITY=$IDENTITY sh "$ROOT/scripts/package-macos.sh"
 
 # Build a retina-ready background (TIFF with 1x and 2x representations) so the
 # DMG window renders crisply on Retina displays.

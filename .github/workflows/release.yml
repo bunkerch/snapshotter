@@ -169,6 +169,7 @@ jobs:
               env:
                   CODESIGN_IDENTITY: ${{ secrets.MACOS_CERTIFICATE_ID }}
                   NOTARY_PROFILE: snapshotter-notary
+                  VERSION: ${{ steps.meta.outputs.version }}
               run: |
                   set -eu
                   sh scripts/package-release.sh

@@ -31,6 +31,12 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Frameworks" "$CONTENTS/Resources/Web"
 cp "$ROOT/macos/.build/release/Snapshotter" "$CONTENTS/MacOS/Snapshotter"
 cp "$ROOT/engine/build/libsnapshotter.dylib" "$CONTENTS/Frameworks/libsnapshotter.dylib"
 cp "$ROOT/macos/Resources/Info.plist" "$CONTENTS/Info.plist"
+# A tagged release stamps its own version (VERSION) so the running app reports
+# the released version. This is what the in-app updater compares against GitHub.
+if [ -n "${VERSION:-}" ]; then
+    plutil -replace CFBundleShortVersionString -string "$VERSION" "$CONTENTS/Info.plist"
+    plutil -replace CFBundleVersion -string "$VERSION" "$CONTENTS/Info.plist"
+fi
 cp -R "$ROOT/dist/". "$CONTENTS/Resources/Web/"
 test "$(find "$CONTENTS/Resources/Web" -type f | wc -l | tr -d ' ')" = "1"
 test -f "$CONTENTS/Resources/Web/index.html"
