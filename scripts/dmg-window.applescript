@@ -1,8 +1,10 @@
 -- Configure a mounted DMG volume's Finder window: icon view, icon size, background picture, and icon positions.
 --
--- The layout targets the Snapshotter install window (700x420 points). The app icon is centred in the
--- left landing slot and the Applications alias in the right landing slot. Finder uses a top-left origin
--- with y increasing downward, and icon size/background live on the icon view options object (not the window).
+-- The layout targets the Snapshotter install window. The background image is 700x420 points; the app icon
+-- is centred in the left landing slot and the Applications alias in the right landing slot. Finder uses a
+-- top-left origin with y increasing downward, and icon size/background live on the icon view options object
+-- (not the window). The window frame is sized so its icon-view content area (below the title bar) is exactly
+-- the 700x420 background, so the background is never clipped.
 --
 -- Hidden files (.background, .DS_Store, etc.) are pushed off the right edge of the window so they do not
 -- appear when the user enables "Show Hidden Files" in Finder.
@@ -15,13 +17,18 @@ on run argv
     set mountPath to item 1 of argv
     set volumeName to item 2 of argv
 
-    set winWidth to 700
-    set winHeight to 420
+    set bgWidth to 700
+    set bgHeight to 420
+    -- Title bar / toolbar height consumed by the window frame. The bounds are measured from the
+    -- frame's top-left, so we add this to the background height to keep the content area exact.
+    set chromeOffset to 32
+    set winWidth to bgWidth
+    set winHeight to bgHeight + chromeOffset
     set iconSize to 128
     -- Window position on screen (top-left of the window frame).
     set winX to 200
     set winY to 200
-    -- Icon positions: top-left origin within the window, y increases downward.
+    -- Icon positions: top-left origin within the content area, y increases downward.
     set appPos to {190, 198}
     set applicationsPos to {510, 198}
 
