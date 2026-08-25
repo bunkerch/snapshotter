@@ -1,3 +1,5 @@
+import type { UpdateStatus } from "./model"
+
 interface NativeResponse<T> {
     ok: boolean
     data?: T
@@ -30,6 +32,7 @@ declare global {
         ) => void
         __snapshotterPackaged?: boolean
         __snapshotterProgress?: (progress: NativeBackupProgress) => void
+        __snapshotterUpdate?: (update: UpdateStatus) => void
     }
 }
 
@@ -45,6 +48,19 @@ export function subscribeToBackupProgress(
     progressListeners.add(listener)
     return () => {
         progressListeners.delete(listener)
+    }
+}
+
+const updateListeners = new Set<(update: UpdateStatus) => void>()
+
+window.__snapshotterUpdate = (update) => {
+    for (const listener of updateListeners) listener(update)
+}
+
+export function subscribeToUpdates(listener: (update: UpdateStatus) => void) {
+    updateListeners.add(listener)
+    return () => {
+        updateListeners.delete(listener)
     }
 }
 

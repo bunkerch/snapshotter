@@ -806,6 +806,38 @@ small {
     background: light-dark(rgb(255 59 48 / 10%), rgb(255 69 58 / 16%));
 }
 
+.update-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    margin: 5px 0;
+    border-radius: 6px;
+    background: light-dark(rgb(88 166 255 / 12%), rgb(10 132 255 / 16%));
+}
+
+.update-banner-text {
+    display: grid;
+    flex: 1;
+    gap: 2px;
+}
+
+.update-banner-text strong {
+    font-size: 11px;
+}
+
+.update-banner-text small {
+    color: var(--secondary);
+    font-size: 10px;
+}
+
+.update-banner-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
 .empty-row {
     padding: 14px 5px;
     color: var(--secondary);

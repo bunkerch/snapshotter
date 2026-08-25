@@ -61,6 +61,16 @@ export interface Preferences {
     schedule: Schedule
     retention: RetentionPolicy
     launchAtLogin: boolean
+    alwaysUpdate: boolean
+}
+
+export interface UpdateStatus {
+    currentVersion: string
+    latestVersion?: string
+    available: boolean
+    notes?: string
+    url?: string
+    installing?: boolean
 }
 
 export interface Snapshot {

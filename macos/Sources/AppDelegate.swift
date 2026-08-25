@@ -133,8 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
               let data = raw.data(using: .utf8),
               let request = try? JSONDecoder().decode(BridgeRequest.self, from: data) else { return }
 
+        Updater.shared.attach(webView: message.webView)
         switch request.type {
         case "app.quit": NSApp.terminate(nil)
+        case "update.status": Backend.shared.updateStatus(requestID: request.id, webView: message.webView)
+        case "update.install": Backend.shared.installUpdate(requestID: request.id, webView: message.webView)
         case "source.choose": chooseSourceFolder(request: request, webView: message.webView)
         case "repository.configure.choose": chooseRepository(request: request, webView: message.webView)
         case "repository.configure.remote": configureRemoteRepository(request: request, webView: message.webView)
@@ -409,6 +412,7 @@ private final class Backend: @unchecked Sendable {
         timer.schedule(deadline: .now() + 10, repeating: 60)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            Updater.shared.checkIfDue()
             self.beginOperation()
             Self.setActivity(true)
             let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
@@ -490,6 +494,10 @@ private final class Backend: @unchecked Sendable {
         operationLock.lock()
         defer { operationLock.unlock() }
         return pendingOperations > 0
+    }
+
+    static func operationInProgress() -> Bool {
+        shared.hasPendingOperation()
     }
 
     private func startProgressUpdates(reference: WebViewReference) -> DispatchSourceTimer? {
@@ -638,6 +646,25 @@ private final class Backend: @unchecked Sendable {
         Self.respond(#"{"ok":true}"#, requestID: requestID, reference: WebViewReference(webView))
     }
 
+    func updateStatus(requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        Updater.shared.status { update in
+            Self.respondData(update.dictionary, requestID: requestID, reference: reference)
+        }
+    }
+
+    func installUpdate(requestID: String?, webView: WKWebView?) {
+        let reference = WebViewReference(webView)
+        Updater.shared.install { result in
+            switch result {
+            case .success:
+                Self.respond(#"{"ok":true}"#, requestID: requestID, reference: reference)
+            case let .failure(error):
+                Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
+        }
+    }
+
     private static func respondData(_ data: Any, requestID: String?, reference: WebViewReference) {
         let payload = ["ok": true, "data": data] as [String: Any]
         guard let encoded = try? JSONSerialization.data(withJSONObject: payload),
@@ -761,7 +788,13 @@ private final class Backend: @unchecked Sendable {
     }
 }
 
-private final class WebViewReference: @unchecked Sendable {
+/// Reports whether any engine operation (backup, restore, maintenance) is
+/// running so the updater can avoid relaunching mid-operation.
+func snapshotterOperationInProgress() -> Bool {
+    Backend.operationInProgress()
+}
+
+final class WebViewReference: @unchecked Sendable {
     weak var webView: WKWebView?
 
     init(_ webView: WKWebView?) {

@@ -31,6 +31,7 @@ vi.mock("./bridge", () => ({
             nativeProgress.listener = undefined
         }
     },
+    subscribeToUpdates: () => () => {},
 }))
 
 const readyState: ApplicationState = {
@@ -76,6 +77,7 @@ const readyState: ApplicationState = {
             yearly: 0,
         },
         launchAtLogin: false,
+        alwaysUpdate: false,
     },
     applicationPresets: [
         {
@@ -483,6 +485,55 @@ describe("Snapshotter app", () => {
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith("operation.cancel")
+        })
+    })
+
+    it("offers an update banner and can trigger the install", async () => {
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "state.get") return readyState
+            if (type === "update.status") {
+                return {
+                    currentVersion: "0.1.0",
+                    latestVersion: "0.2.0",
+                    available: true,
+                    notes: "Fixes",
+                    url: "https://example.com/Snapshotter-0.2.0-macOS.zip",
+                }
+            }
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+
+        expect(
+            await screen.findByText("Snapshotter 0.2.0 is available"),
+        ).toBeTruthy()
+        fireEvent.click(screen.getByRole("button", { name: "Update now" }))
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("update.install")
+        })
+        expect(screen.getByText("Updating Snapshotter…")).toBeTruthy()
+    })
+
+    it("toggles automatically installing updates", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            within(screen.getByRole("navigation")).getByRole("button", {
+                name: "Settings",
+            }),
+        )
+
+        fireEvent.click(
+            screen.getByRole("switch", {
+                name: "Automatically install updates",
+            }),
+        )
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("alwaysUpdate.set", {
+                enabled: true,
+            })
         })
     })
 })
