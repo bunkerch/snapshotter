@@ -12,34 +12,54 @@ SIZE_H=900
 
 mkdir -p "$WS"
 
-# --- Gather the changelog ---
+# --- Gather the changelog, scoped to this release's diff base ---
+# Diff base = the immediately-previous release tag in semantic-version order.
+# For a STABLE release, prereleases of the same version are skipped so the
+# notes recap the whole release line (e.g. v1.0.2 recaps rc.1 + final, based on
+# v1.0.1), not just the last rc. For a PRE-RELEASE the base is the prior tag
+# (v1.0.2-rc.2 diffs against v1.0.2-rc.1).
 CHANGELOG="$WS/changelog.md"
+tag_file="$WS/tags.txt"
+git tag --sort=version:refname 2>/dev/null > "$tag_file" || true
+
+prev=""
+if [ -n "${RELEASE_TAG:-}" ]; then
+    cur="$RELEASE_TAG"
+    cur_base="${cur%%-*}"
+    idx=$(grep -nxF "$cur" "$tag_file" 2>/dev/null | cut -d: -f1 || true)
+    if [ -n "$idx" ]; then
+        i=$((idx - 1))
+        while [ "$i" -ge 1 ]; do
+            t=$(sed -n "${i}p" "$tag_file")
+            t_base=${t%%-*}
+            if [ "$cur" = "$cur_base" ] && [ "$t" != "$t_base" ] && [ "$t_base" = "$cur_base" ]; then
+                i=$((i - 1))
+                continue
+            fi
+            prev="$t"
+            break
+        done
+    fi
+else
+    prev="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+fi
+
 {
-    echo "# What changed"
+    echo "# What changed (this release)"
     echo
     echo "Release: $VERSION"
     echo
-    if command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_REPOSITORY:-}" ]; then
-        if gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 40 \
-            --json title,mergedAt --jq 'sort_by(.mergedAt) | reverse | .[].title' \
-            2>"$WS/pr.err" | sed 's/^/- /'; then
-            :
-        else
-            echo "  [gh pr list failed: $(head -n1 "$WS/pr.err" 2>/dev/null || true)]" >&2
-        fi
+    if [ -n "$prev" ]; then
+        echo "Changes since $prev:"
+        echo
+        git log --no-color --oneline --no-merges "$prev..HEAD" 2>/dev/null | sed 's/^/- /' || true
+    else
+        echo "No previous release tag; showing the complete history:"
+        echo
+        git log --no-color --oneline --no-merges 2>/dev/null | sed 's/^/- /' || true
     fi
-    echo
-    echo "# Recent commits"
-    echo
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-        if prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null); then
-            git log --no-color --oneline --no-merges "$prev..HEAD" 2>/dev/null | sed 's/^/- /' || true
-        else
-            git log --no-color --oneline --no-merges -20 2>/dev/null | sed 's/^/- /' || true
-        fi
-    fi
-    rm -f "$WS/pr.err"
 } > "$CHANGELOG"
+rm -f "$tag_file"
 
 # --- Prepare workspace (template + version + isolation config + skill) ---
 cp -R "$ROOT/scripts/banner/." "$WS/"
