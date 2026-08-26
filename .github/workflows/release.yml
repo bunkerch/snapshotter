@@ -187,6 +187,7 @@ jobs:
             - name: Generate release banner
               env:
                   BANNER_VERSION: ${{ steps.meta.outputs.version }}
+                  BANNER_PRERELEASE: ${{ steps.meta.outputs.prerelease }}
                   BANNER_OUT: build/Snapshotter-banner.png
                   OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
                   OPENCODE_BASE_URL: ${{ secrets.OPENCODE_BASE_URL }}

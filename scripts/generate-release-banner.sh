@@ -10,6 +10,15 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 SIZE_W=1600
 SIZE_H=900
 
+# Release-channel accent (saturated green/yellow): green for stable, yellow for
+# pre-release — derived from GitHub's palette, deepened so it reads on dark.
+ACCENT="#4ADE80"
+RELEASE_TYPE="stable release"
+if [ "${BANNER_PRERELEASE:-false}" = "true" ]; then
+    ACCENT="#F7C948"
+    RELEASE_TYPE="pre-release"
+fi
+
 mkdir -p "$WS"
 
 # --- Gather the changelog, scoped to this release's diff base ---
@@ -63,7 +72,8 @@ rm -f "$tag_file"
 
 # --- Prepare workspace (template + version + isolation config + skill) ---
 cp -R "$ROOT/scripts/banner/." "$WS/"
-sed "s/__VERSION__/$(printf '%s' "$VERSION" | sed 's/[&/\]/\\&/g')/g" \
+sed -e "s/__VERSION__/$(printf '%s' "$VERSION" | sed 's/[&/\]/\\&/g')/g" \
+    -e "s/__ACCENT__/$ACCENT/g" \
     "$ROOT/scripts/banner/index.html" > "$WS/index.html"
 
 # --- Fallback render so a banner always exists ---
@@ -117,6 +127,10 @@ if [ -n "${OPENCODE_API_KEY:-}" ] && [ -n "${OPENCODE_BASE_URL:-}" ] && [ -n "${
 You are generating the promotional banner for the Snapshotter release described
 in $WS/changelog.md. Version to feature: $VERSION.
 
+This is the $RELEASE_TYPE. Its accent colour is $ACCENT (green for a stable
+release, yellow for a pre-release); it is already set in index.html. Keep that
+exact accent hue — do not shift it to something else.
+
 A skill file with detailed rules is at
 $WS/skills/design-promotional-banner/SKILL.md — read it and follow it. The key
 requirements are restated here so you can satisfy them regardless of tooling.
@@ -128,10 +142,10 @@ requirements are restated here so you can satisfy them regardless of tooling.
    concrete, not noise. Do not invent features, numbers, dates, or metrics.
 
 2. On-brand but not the template. Adapt $WS/index.html in place. Keep the kit
-   recognizably Snapshotter: near-black background, light text, one accent
-   (base #0a84ff, but shift it to fit the changelog/milestone), the rounded
-   shield mark, a system font stack. You MUST change the hero message, copy,
-   and accent so the result cannot be confused with the default fallback.
+   recognizably Snapshotter: near-black background, light text, the release-type
+   accent ($ACCENT), the rounded shield mark, the subtle grid background, and a
+   system font stack. You MUST change the hero message and copy so the result
+   cannot be confused with the default fallback, but keep the accent hue.
 
 3. Design rules. One message, at most a hook + support line. Hierarchy by
    size/weight/colour, not boxes/borders/shadows. Headline under 6 words,

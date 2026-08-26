@@ -18,13 +18,15 @@ the heroes are those fixes.
      secret store, a notable new integration) -> make that the one message.
    - Otherwise, "bug fixes and polish" -> make the fixes the one message.
 2. Adapt `index.html` in place (keep the file name). Match this project's design
-   system: near-black background, accent blue `#0a84ff`, light text `#f5f5f7`,
-   secondary `#a1a1a6`, the rounded shield mark, and a system font stack. The
-   version token is already substituted into the headline.
-3. Pick a theme / accent treatment that suits the changelog. Variation is
-   welcome (a different accent hue derived from the milestone or the deliverable
-   type) but never at the cost of contrast or hierarchy. Keep the visual kit
-   recognisably Snapshotter.
+   system: near-black background, light text, a subtle gray grid background, the
+   rounded shield mark, and a system font stack. The accent is **fixed by
+   release type** and is already substituted into the template: green `#4ADE80`
+   for a stable release, yellow `#F7C948` for a pre-release. Keep that accent's
+   hue; it signals the release channel. The version is already in the headline.
+3. Adapt the layout to the changelog (a milestone hero, or "bug fixes and
+   polish"). Keep the release-type accent hue from step 2 — vary the layout,
+   copy, and the accent's use (shapes, glow, kicker) for interest, but do not
+   shift the hue. The subtle grid background stays.
 4. Write the banner copy. Follow the banner design rules and anti-slop rules
    below. The headline must state what changed, not announce a category. If the
    release is polish-only, say so concretely ("Bug fixes and polish" as the
