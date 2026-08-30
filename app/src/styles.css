@@ -233,10 +233,10 @@ footer {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    height: 36px;
-    padding: 0 16px;
+    height: 31px;
+    padding: 0 13px;
     border-radius: var(--radius);
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 500;
     white-space: nowrap;
     transition:
@@ -646,7 +646,10 @@ small {
 /* Snapshot list --------------------------------------------------------------- */
 
 .timeline {
-    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
 }
 
 .timeline-row {
@@ -656,15 +659,11 @@ small {
     gap: 12px;
     width: 100%;
     min-height: 68px;
-    padding: 10px;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0.45rem;
+    padding: 12px;
+    border: 0;
+    border-radius: var(--radius);
     text-align: left;
     transition: background 0.14s ease;
-}
-
-.timeline-row:last-child {
-    border-bottom: 0;
 }
 
 .timeline-row:hover {
@@ -729,8 +728,8 @@ small {
 }
 
 .browser-toolbar .icon-button {
-    width: 36px;
-    height: 36px;
+    width: 31px;
+    height: 31px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--card);
