@@ -1,6 +1,7 @@
 import {
     Archive,
     ArrowLeft,
+    ArrowUp,
     ChevronRight,
     Clock3,
     Download,
@@ -1060,7 +1061,7 @@ function Overview({
             )}
             <section className="list-card source-list">
                 {state.preferences.sources.length === 0 && (
-                    <div className="empty-row">No folders selected</div>
+                    <div className="empty-row">Add a folder to back it up</div>
                 )}
                 {state.preferences.sources.map((source) => (
                     <div className="source-row" key={source.id}>
@@ -1107,7 +1108,9 @@ function Overview({
             />
             <section className="list-card snapshot-list">
                 {state.snapshots.length === 0 && (
-                    <div className="empty-row">No snapshots yet</div>
+                    <div className="empty-row">
+                        No snapshots yet — your first backup is one click away
+                    </div>
                 )}
                 {state.snapshots.slice(0, 2).map((snapshot) => (
                     <button
@@ -1386,7 +1389,7 @@ function Snapshots({
             </div>
             <div className="timeline">
                 {visibleSnapshots.length === 0 && (
-                    <div className="empty-row">No snapshots yet</div>
+                    <div className="empty-row">No snapshots found</div>
                 )}
                 {visibleSnapshots.map((snapshot) => (
                     <button
@@ -1396,7 +1399,7 @@ function Snapshots({
                         onClick={() => setSelectedSnapshot(snapshot)}
                     >
                         <div className="snapshot-symbol">
-                            <Archive size={16} />
+                            <Archive size={17} />
                         </div>
                         <div className="row-copy">
                             <strong>{formatDate(snapshot.time)}</strong>
@@ -1507,16 +1510,22 @@ function SnapshotBrowser({
 
     const parent =
         path === "/" ? "/" : path.split("/").slice(0, -1).join("/") || "/"
+    const isRoot = path === "/"
     return (
         <section className="page snapshot-browser">
             <div className="browser-toolbar">
                 <button
                     type="button"
                     className="icon-button"
-                    aria-label="Back to snapshots"
-                    onClick={onBack}
+                    aria-label={isRoot ? "Back to snapshots" : "Up one level"}
+                    title={isRoot ? "Back to snapshots" : "Up one level"}
+                    disabled={loading || restoring}
+                    onClick={() => {
+                        if (isRoot) onBack()
+                        else setPath(parent)
+                    }}
                 >
-                    <ArrowLeft size={15} />
+                    {isRoot ? <ArrowLeft size={16} /> : <ArrowUp size={16} />}
                 </button>
                 <div>
                     <strong>{formatDate(snapshot.time)}</strong>
@@ -1538,16 +1547,6 @@ function SnapshotBrowser({
                     {restoring ? "Cancel restore" : "Restore"}
                 </button>
             </div>
-            {path !== "/" && (
-                <button
-                    type="button"
-                    className="entry-row parent-entry"
-                    onClick={() => setPath(parent)}
-                >
-                    <Folder size={16} />
-                    <span>..</span>
-                </button>
-            )}
             <div className="entry-list">
                 {loading && <div className="empty-row">Loading…</div>}
                 {!loading && entries.length === 0 && (
@@ -1787,50 +1786,52 @@ function Settings({
                 </div>
             )}
             <h3>Repository</h3>
-            <div className="setting-row">
-                <HardDrive size={17} />
-                <span>
-                    <strong>{preferences.repository?.name}</strong>
-                    <small>{preferences.repository?.location}</small>
-                </span>
-            </div>
-            {!disconnectOpen ? (
-                <button
-                    type="button"
-                    className="setting-row"
-                    onClick={() => setDisconnectOpen(true)}
-                >
+            <div className="settings-group">
+                <div className="setting-row">
+                    <HardDrive size={17} />
                     <span>
-                        <strong>Change repository</strong>
-                        <small>Your backup data will not be deleted</small>
+                        <strong>{preferences.repository?.name}</strong>
+                        <small>{preferences.repository?.location}</small>
                     </span>
-                    <ChevronRight size={15} />
-                </button>
-            ) : (
-                <div className="disconnect-confirmation">
-                    <span>
-                        Disconnect this repository? Stored snapshots remain
-                        untouched.
-                    </span>
-                    <button
-                        type="button"
-                        onClick={() => setDisconnectOpen(false)}
-                        disabled={disconnecting}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className="destructive-button"
-                        onClick={() => void disconnectRepository()}
-                        disabled={disconnecting}
-                    >
-                        {disconnecting ? "Disconnecting…" : "Disconnect"}
-                    </button>
                 </div>
-            )}
+                {!disconnectOpen ? (
+                    <button
+                        type="button"
+                        className="setting-row"
+                        onClick={() => setDisconnectOpen(true)}
+                    >
+                        <span>
+                            <strong>Change repository</strong>
+                            <small>Your backup data will not be deleted</small>
+                        </span>
+                        <ChevronRight size={15} />
+                    </button>
+                ) : (
+                    <div className="disconnect-confirmation">
+                        <span>
+                            Disconnect this repository? Stored snapshots remain
+                            untouched.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setDisconnectOpen(false)}
+                            disabled={disconnecting}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="destructive-button"
+                            onClick={() => void disconnectRepository()}
+                            disabled={disconnecting}
+                        >
+                            {disconnecting ? "Disconnecting…" : "Disconnect"}
+                        </button>
+                    </div>
+                )}
+            </div>
             <h3>Schedule</h3>
-            <div className="settings-card">
+            <div className="settings-group">
                 <label>
                     <span>
                         <strong>Automatic backups</strong>
@@ -1938,105 +1939,119 @@ function Settings({
                 )}
             </div>
             <h3>Retention</h3>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() => setRetentionOpen((open) => !open)}
-            >
-                <Clock3 size={17} />
-                <span>
-                    <strong>Smart retention</strong>
-                    <small>
-                        {preferences.retention.daily} daily ·{" "}
-                        {preferences.retention.weekly} weekly ·{" "}
-                        {preferences.retention.monthly} monthly
-                    </small>
-                </span>
-                <ChevronRight
-                    className={retentionOpen ? "expanded" : ""}
-                    size={15}
-                />
-            </button>
-            {retentionOpen && (
-                <div className="retention-editor">
-                    <p>
-                        Keep one snapshot for each period. Applied after every
-                        successful backup; the newest snapshot is always kept.
-                    </p>
-                    {(["daily", "weekly", "monthly"] as const).map((period) => (
-                        <label key={period}>
-                            <span>
-                                {period[0].toUpperCase() + period.slice(1)}
-                            </span>
-                            <input
-                                type="number"
-                                min="0"
-                                max="999"
-                                value={retention[period]}
-                                onChange={(event) =>
-                                    setRetention((current) => ({
-                                        ...current,
-                                        [period]: Number(event.target.value),
-                                    }))
-                                }
-                            />
-                        </label>
-                    ))}
-                    <button
-                        type="button"
-                        className="primary-button"
-                        disabled={savingRetention}
-                        onClick={() => void saveRetention()}
-                    >
-                        {savingRetention ? "Applying…" : "Apply"}
-                    </button>
-                </div>
-            )}
+            <div className="settings-group">
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() => setRetentionOpen((open) => !open)}
+                >
+                    <Clock3 size={17} />
+                    <span>
+                        <strong>Smart retention</strong>
+                        <small>
+                            {preferences.retention.daily} daily ·{" "}
+                            {preferences.retention.weekly} weekly ·{" "}
+                            {preferences.retention.monthly} monthly
+                        </small>
+                    </span>
+                    <ChevronRight
+                        className={retentionOpen ? "expanded" : ""}
+                        size={15}
+                    />
+                </button>
+                {retentionOpen && (
+                    <div className="retention-editor">
+                        <p>
+                            Keep one snapshot for each period. Applied after
+                            every successful backup; the newest snapshot is
+                            always kept.
+                        </p>
+                        {(["daily", "weekly", "monthly"] as const).map(
+                            (period) => (
+                                <label key={period}>
+                                    <span>
+                                        {period[0].toUpperCase() +
+                                            period.slice(1)}
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="999"
+                                        value={retention[period]}
+                                        onChange={(event) =>
+                                            setRetention((current) => ({
+                                                ...current,
+                                                [period]: Number(
+                                                    event.target.value,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </label>
+                            ),
+                        )}
+                        <button
+                            type="button"
+                            className="primary-button"
+                            disabled={savingRetention}
+                            onClick={() => void saveRetention()}
+                        >
+                            {savingRetention ? "Applying…" : "Apply"}
+                        </button>
+                    </div>
+                )}
+            </div>
             <h3>Maintenance</h3>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() =>
-                    void (checking ? cancelMaintenance() : checkRepository())
-                }
-                disabled={repairing}
-            >
-                {checking ? (
-                    <Square size={15} fill="currentColor" />
-                ) : (
-                    <Wrench size={17} />
-                )}
-                <span>
-                    <strong>
-                        {checking ? "Cancel check" : "Check repository"}
-                    </strong>
-                    {checkResult && <small>{checkResult}</small>}
-                </span>
-            </button>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() =>
-                    void (repairing
-                        ? cancelMaintenance()
-                        : repairRepositoryIndex())
-                }
-                disabled={checking}
-            >
-                {repairing ? (
-                    <Square size={15} fill="currentColor" />
-                ) : (
-                    <Wrench size={17} />
-                )}
-                <span>
-                    <strong>
-                        {repairing ? "Cancel repair" : "Repair index"}
-                    </strong>
-                    <small>Rebuild repository metadata from stored packs</small>
-                </span>
-            </button>
+            <div className="settings-group">
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() =>
+                        void (checking
+                            ? cancelMaintenance()
+                            : checkRepository())
+                    }
+                    disabled={repairing}
+                >
+                    {checking ? (
+                        <Square size={15} fill="currentColor" />
+                    ) : (
+                        <Wrench size={17} />
+                    )}
+                    <span>
+                        <strong>
+                            {checking ? "Cancel check" : "Check repository"}
+                        </strong>
+                        {checkResult && <small>{checkResult}</small>}
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() =>
+                        void (repairing
+                            ? cancelMaintenance()
+                            : repairRepositoryIndex())
+                    }
+                    disabled={checking}
+                >
+                    {repairing ? (
+                        <Square size={15} fill="currentColor" />
+                    ) : (
+                        <Wrench size={17} />
+                    )}
+                    <span>
+                        <strong>
+                            {repairing ? "Cancel repair" : "Repair index"}
+                        </strong>
+                        <small>
+                            Rebuild repository metadata from stored packs
+                        </small>
+                    </span>
+                </button>
+            </div>
             <h3>Updates</h3>
-            <div className="settings-card">
+            <div className="settings-group">
                 <label>
                     <span>
                         <strong>Automatically install updates</strong>
@@ -2055,69 +2070,71 @@ function Settings({
                         <span />
                     </button>
                 </label>
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() => void checkForUpdate()}
+                    disabled={checkingUpdate}
+                >
+                    {checkingUpdate ? (
+                        <LoaderCircle className="spinner" size={17} />
+                    ) : (
+                        <Download size={17} />
+                    )}
+                    <span>
+                        <strong>
+                            {checkingUpdate
+                                ? "Checking for updates…"
+                                : "Check for updates"}
+                        </strong>
+                        {updateMessage && <small>{updateMessage}</small>}
+                    </span>
+                </button>
             </div>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() => void checkForUpdate()}
-                disabled={checkingUpdate}
-            >
-                {checkingUpdate ? (
-                    <LoaderCircle className="spinner" size={17} />
-                ) : (
-                    <Download size={17} />
-                )}
-                <span>
-                    <strong>
-                        {checkingUpdate
-                            ? "Checking for updates…"
-                            : "Check for updates"}
-                    </strong>
-                    {updateMessage && <small>{updateMessage}</small>}
-                </span>
-            </button>
             <h3>About</h3>
-            <button
-                type="button"
-                className="setting-row"
-                onClick={() => setAcknowledgementsOpen((open) => !open)}
-            >
-                <Info size={17} />
-                <span>
-                    <strong>Open Source Acknowledgements</strong>
-                    <small>Software that makes Snapshotter possible</small>
-                </span>
-                <ChevronRight
-                    className={acknowledgementsOpen ? "expanded" : ""}
-                    size={15}
-                />
-            </button>
-            {acknowledgementsOpen && (
-                <div className="acknowledgements">
-                    <strong>restic 0.19.1</strong>
+            <div className="settings-group">
+                <button
+                    type="button"
+                    className="setting-row"
+                    onClick={() => setAcknowledgementsOpen((open) => !open)}
+                >
+                    <Info size={17} />
                     <span>
-                        Fast, secure backup engine · BSD 2-Clause License
+                        <strong>Open Source Acknowledgements</strong>
+                        <small>Software that makes Snapshotter possible</small>
                     </span>
-                    <span>
-                        Copyright © 2014 Alexander Neumann and contributors
-                    </span>
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            try {
-                                await requestNative("url.open", {
-                                    url: "https://github.com/restic/restic/blob/v0.19.1/LICENSE",
-                                })
-                                setSettingsError(undefined)
-                            } catch (error) {
-                                setSettingsError(message(error))
-                            }
-                        }}
-                    >
-                        View license
-                    </button>
-                </div>
-            )}
+                    <ChevronRight
+                        className={acknowledgementsOpen ? "expanded" : ""}
+                        size={15}
+                    />
+                </button>
+                {acknowledgementsOpen && (
+                    <div className="acknowledgements">
+                        <strong>restic 0.19.1</strong>
+                        <span>
+                            Fast, secure backup engine · BSD 2-Clause License
+                        </span>
+                        <span>
+                            Copyright © 2014 Alexander Neumann and contributors
+                        </span>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                try {
+                                    await requestNative("url.open", {
+                                        url: "https://github.com/restic/restic/blob/v0.19.1/LICENSE",
+                                    })
+                                    setSettingsError(undefined)
+                                } catch (error) {
+                                    setSettingsError(message(error))
+                                }
+                            }}
+                        >
+                            View license
+                        </button>
+                    </div>
+                )}
+            </div>
         </section>
     )
 }
