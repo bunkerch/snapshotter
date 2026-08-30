@@ -566,4 +566,42 @@ describe("Snapshotter app", () => {
         })
         expect(await screen.findByText("You're up to date")).toBeTruthy()
     })
+
+    it("lets you install an update found by the manual Settings check", async () => {
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "state.get") return readyState
+            if (type === "update.check") {
+                return {
+                    currentVersion: "0.1.0",
+                    latestVersion: "0.2.0",
+                    available: true,
+                    notes: "Fixes",
+                    url: "https://example.com/Snapshotter-0.2.0-macOS.zip",
+                }
+            }
+            if (type === "update.install") return true
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            within(screen.getByRole("navigation")).getByRole("button", {
+                name: "Settings",
+            }),
+        )
+
+        fireEvent.click(
+            screen.getByRole("button", { name: /Check for updates/ }),
+        )
+
+        const install = await screen.findByRole("button", {
+            name: /Update now to 0\.2\.0/,
+        })
+        fireEvent.click(install)
+
+        await waitFor(() => {
+            expect(requestNative).toHaveBeenCalledWith("update.install")
+        })
+        expect(await screen.findByText("Installing update…")).toBeTruthy()
+    })
 })

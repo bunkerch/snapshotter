@@ -208,7 +208,9 @@ export function App() {
                     <Settings
                         state={state}
                         onState={(next) => setState(normalizeState(next))}
+                        updateStatus={updateStatus}
                         onUpdateStatus={setUpdateStatus}
+                        onInstall={() => void installUpdate()}
                     />
                 )}
             </div>

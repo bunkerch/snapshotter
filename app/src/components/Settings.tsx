@@ -17,10 +17,14 @@ export function Settings({
     state,
     onState,
     onUpdateStatus,
+    updateStatus,
+    onInstall,
 }: {
     state: ApplicationState
     onState: (state: ApplicationState) => void
     onUpdateStatus: (status: UpdateStatus) => void
+    updateStatus?: UpdateStatus
+    onInstall?: () => void
 }) {
     const preferences = state.preferences
     const [retentionOpen, setRetentionOpen] = useState(false)
@@ -484,6 +488,34 @@ export function Settings({
                         {updateMessage && <small>{updateMessage}</small>}
                     </span>
                 </button>
+                {updateStatus?.available && !updateStatus.installing && (
+                    <button
+                        type="button"
+                        className="setting-row"
+                        onClick={onInstall}
+                    >
+                        <Download size={17} />
+                        <span>
+                            <strong>
+                                Update now to {updateStatus.latestVersion}
+                            </strong>
+                            <small>
+                                Download, install, and relaunch automatically
+                            </small>
+                        </span>
+                    </button>
+                )}
+                {updateStatus?.installing && (
+                    <div className="setting-row" role="status">
+                        <LoaderCircle className="spinner" size={17} />
+                        <span>
+                            <strong>Installing update…</strong>
+                            <small>
+                                The app will restart when the update is ready
+                            </small>
+                        </span>
+                    </div>
+                )}
             </div>
             <h3>About</h3>
             <div className="settings-group">
