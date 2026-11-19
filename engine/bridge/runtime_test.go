@@ -285,6 +285,79 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return encoded
 }
 
+func TestScheduleEditsPreserveOtherFields(t *testing.T) {
+	runtime := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	for _, payload := range []string{`{"kind":"weekly","weekday":2,"enabled":true}`, `{"hour":15,"minute":30}`} {
+		result := runtime.handle(context.Background(), []byte(`{"type":"schedule.set","payload":`+payload+`}`))
+		if !result.OK {
+			t.Fatal(result.Error)
+		}
+	}
+	preferences, err := runtime.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preferences.Schedule.Kind != domain.ScheduleWeekly || preferences.Schedule.Weekday != 2 || preferences.Schedule.Hour != 15 || !preferences.Schedule.Enabled {
+		t.Fatalf("schedule fields lost: %#v", preferences.Schedule)
+	}
+}
+
+func TestScheduledBackupTracksEnabledSources(t *testing.T) {
+	ctx := context.Background()
+	r := newRuntime(filepath.Join(t.TempDir(), "preferences.json"))
+	defer r.repository.Close()
+	configured := domain.Repository{ID: "schedule", Name: "Schedule", Kind: domain.RepositoryLocal, Location: t.TempDir()}
+	if err := r.repository.Initialize(ctx, configured, domain.RepositoryCredentials{}, []byte("password")); err != nil {
+		t.Fatal(err)
+	}
+	preferences, err := r.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "file"), []byte("backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preferences.Repository = &configured
+	preferences.Sources = []domain.Source{{ID: "first", Path: source, Enabled: true}}
+	if err := r.store.Save(preferences); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := r.repository.Backup(ctx, preferences.Sources, nil, domain.BackupMetadata{Version: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := snapshot.Time.Add(time.Second)
+	summary, err := summarizeBackup(preferences, []domain.Snapshot{snapshot}, now)
+	if err != nil || summary.LastBackup == nil {
+		t.Fatalf("this Mac's snapshot must count: summary=%+v err=%v", summary, err)
+	}
+	otherMac := snapshot
+	otherMac.Hostname += "-other-mac"
+	summary, err = summarizeBackup(preferences, []domain.Snapshot{otherMac}, now)
+	if err != nil || summary.LastBackup != nil || !summary.Due {
+		t.Fatalf("another Mac must not satisfy the schedule: summary=%+v err=%v", summary, err)
+	}
+	preferences.Sources = append(preferences.Sources, domain.Source{ID: "second", Path: t.TempDir(), Enabled: true})
+	if err := r.store.Save(preferences); err != nil {
+		t.Fatal(err)
+	}
+	_, due, err := r.scheduledBackupState(ctx, now)
+	if err != nil || !due {
+		t.Fatalf("new source must be backed up: due=%v err=%v", due, err)
+	}
+	for i := range preferences.Sources {
+		preferences.Sources[i].Enabled = false
+	}
+	if err := r.store.Save(preferences); err != nil {
+		t.Fatal(err)
+	}
+	_, due, err = r.scheduledBackupState(ctx, now.Add(48*time.Hour))
+	if err != nil || due {
+		t.Fatalf("disabled sources must not trigger backup: due=%v err=%v", due, err)
+	}
+}
+
 func TestStartupUnlockEnablesScheduledBackupWithoutRepeatedAuthorization(t *testing.T) {
 	ctx := context.Background()
 	preferencesPath := filepath.Join(t.TempDir(), "preferences.json")

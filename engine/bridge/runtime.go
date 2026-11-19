@@ -79,6 +79,13 @@ type applicationState struct {
 	Snapshots          []domain.Snapshot          `json:"snapshots"`
 	Status             string                     `json:"status"`
 	Warning            string                     `json:"warning,omitempty"`
+	Backup             backupSummary              `json:"backup"`
+}
+
+type backupSummary struct {
+	LastBackup  *time.Time `json:"lastBackup,omitempty"`
+	SourceCount int        `json:"sourceCount"`
+	Due         bool       `json:"due"`
 }
 
 func newRuntime(preferencesPath string) *runtime {
@@ -342,15 +349,13 @@ func (r *runtime) setAlwaysUpdate(payload json.RawMessage) (applicationState, er
 }
 
 func (r *runtime) setSchedule(payload json.RawMessage) (applicationState, error) {
-	var configured domain.Schedule
-	if err := json.Unmarshal(payload, &configured); err != nil {
-		return applicationState{}, fmt.Errorf("decode schedule: %w", err)
-	}
 	preferences, err := r.store.Load()
 	if err != nil {
 		return applicationState{}, err
 	}
-	preferences.Schedule = configured
+	if err := json.Unmarshal(payload, &preferences.Schedule); err != nil {
+		return applicationState{}, fmt.Errorf("decode schedule: %w", err)
+	}
 	if err := r.store.Save(preferences); err != nil {
 		return applicationState{}, err
 	}
@@ -367,10 +372,13 @@ func (r *runtime) scheduleTick(ctx context.Context, payload json.RawMessage, now
 
 func (r *runtime) scheduledBackupState(ctx context.Context, now time.Time) (applicationState, bool, error) {
 	state, err := r.state(ctx)
-	if err != nil || state.Status != "ready" || (len(state.Preferences.Sources) == 0 && len(state.Preferences.SelectedApps) == 0) {
+	if err != nil || state.Status != "ready" || state.Backup.SourceCount == 0 {
 		return state, false, err
 	}
-	lastBackup := mostRecentBackup(state.Snapshots, r.lastBackupCancellation)
+	lastBackup := r.lastBackupCancellation
+	if state.Backup.LastBackup != nil && state.Backup.LastBackup.After(lastBackup) {
+		lastBackup = *state.Backup.LastBackup
+	}
 	due, _, err := scheduler.Due(now, lastBackup, state.Preferences.Schedule)
 	return state, due, err
 }
@@ -409,7 +417,66 @@ func (r *runtime) state(ctx context.Context) (applicationState, error) {
 	}
 	state.Status = "ready"
 	state.Snapshots = snapshots
+	state.Backup, err = summarizeBackup(preferences, snapshots, time.Now())
+	if err != nil {
+		return applicationState{}, err
+	}
 	return state, nil
+}
+
+func summarizeBackup(preferences domain.Preferences, snapshots []domain.Snapshot, now time.Time) (backupSummary, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return backupSummary{}, err
+	}
+	applications, err := presetSources(preferences.SelectedApps)
+	if err != nil {
+		return backupSummary{}, err
+	}
+	sources := append(append([]domain.Source{}, preferences.Sources...), applications...)
+	paths := make(map[string]bool)
+	for _, source := range sources {
+		if source.Enabled && !source.Excluded {
+			paths[filepath.Clean(source.Path)] = true
+		}
+	}
+	matching := snapshotsForSources(snapshots, hostname, paths)
+	last := mostRecentBackup(matching, time.Time{})
+	summary := backupSummary{SourceCount: len(paths)}
+	if !last.IsZero() {
+		summary.LastBackup = &last
+	}
+	if len(paths) > 0 {
+		summary.Due, _, err = scheduler.Due(now, last, preferences.Schedule)
+	}
+	return summary, err
+}
+
+func snapshotsForSources(snapshots []domain.Snapshot, hostname string, paths map[string]bool) []domain.Snapshot {
+	matching := make([]domain.Snapshot, 0)
+	for _, snapshot := range snapshots {
+		if snapshot.Hostname != hostname {
+			continue
+		}
+		covered := make(map[string]bool)
+		for _, path := range snapshot.Paths {
+			covered[filepath.Clean(path)] = true
+		}
+		if len(covered) != len(paths) {
+			continue
+		}
+		matches := true
+		for path := range paths {
+			if !covered[path] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			matching = append(matching, snapshot)
+		}
+	}
+	return matching
 }
 
 func (r *runtime) addSources(payload json.RawMessage) (applicationState, error) {

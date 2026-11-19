@@ -194,7 +194,7 @@ export function Setup({
                 <HardDrive />
             </div>
             <h1>Set up your backup</h1>
-            <p>Choose a destination and encryption password.</p>
+            <p>Store your password in</p>
             <fieldset className="repository-mode" aria-label="Secret storage">
                 <button
                     type="button"
@@ -327,11 +327,11 @@ export function Setup({
                             >
                                 {loadingItems
                                     ? "Loading…"
-                                    : "Use synced secrets…"}
+                                    : "Find saved backups"}
                             </button>
                             {onePasswordItems.length > 0 && (
                                 <label>
-                                    Snapshotter item
+                                    Saved backup
                                     <select
                                         value={onePasswordItemID}
                                         onChange={(event) => {
@@ -349,9 +349,7 @@ export function Setup({
                                             setLocation(item.location ?? "")
                                         }}
                                     >
-                                        <option value="">
-                                            Use entered password
-                                        </option>
+                                        <option value="">New backup</option>
                                         {onePasswordItems.map((item) => (
                                             <option
                                                 key={item.id}
@@ -365,10 +363,13 @@ export function Setup({
                             )}
                         </>
                     )}
-                    <small className="setup-hint">
-                        Requires the 1Password desktop app. Authorization uses
-                        Touch ID when enabled in 1Password.
-                    </small>
+                    <details className="setup-help">
+                        <summary>1Password setup</summary>
+                        <p>
+                            In the 1Password desktop app, enable Settings →
+                            Developer → Integrate with 1Password SDKs.
+                        </p>
+                    </details>
                 </div>
             )}
             <fieldset
@@ -391,11 +392,8 @@ export function Setup({
                 !onePasswordItems.find((item) => item.id === onePasswordItemID)
                     ?.location && (
                     <p className="setup-hint" role="status">
-                        This older 1Password item has no saved destination.
-                        Select your repository type and enter its existing
-                        address (or choose its folder). Snapshotter will save it
-                        in 1Password after connecting so you only need to do
-                        this once.
+                        No destination saved. Enter the existing repository
+                        address or choose its folder.
                     </p>
                 )}
             <label>

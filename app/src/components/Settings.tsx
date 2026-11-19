@@ -8,7 +8,7 @@ import {
     Square,
     Wrench,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { isPackagedHost, requestNative } from "../bridge"
 import { message, scheduleLabel, weekdays } from "../lib/utils"
 import type { ApplicationState, UpdateStatus } from "../model"
@@ -17,10 +17,12 @@ export function Settings({
     state,
     onState,
     onUpdateStatus,
+    onBusyChange,
 }: {
     state: ApplicationState
     onState: (state: ApplicationState) => void
     onUpdateStatus: (status: UpdateStatus) => void
+    onBusyChange?: (busy: boolean) => void
 }) {
     const preferences = state.preferences
     const [retentionOpen, setRetentionOpen] = useState(false)
@@ -37,13 +39,17 @@ export function Settings({
     const [updateMessage, setUpdateMessage] = useState<string>()
     const packaged = isPackagedHost()
 
+    useEffect(() => {
+        onBusyChange?.(checking || repairing || disconnecting)
+        return () => onBusyChange?.(false)
+    }, [checking, repairing, disconnecting, onBusyChange])
+
     const updateSchedule = async (
         changes: Partial<typeof preferences.schedule>,
     ) => {
         try {
             onState(
                 await requestNative<ApplicationState>("schedule.set", {
-                    ...preferences.schedule,
                     ...changes,
                 }),
             )
@@ -195,17 +201,13 @@ export function Settings({
                         onClick={() => setDisconnectOpen(true)}
                     >
                         <span>
-                            <strong>Change repository</strong>
-                            <small>Your backup data will not be deleted</small>
+                            <strong>Disconnect repository</strong>
                         </span>
                         <ChevronRight size={15} />
                     </button>
                 ) : (
                     <div className="disconnect-confirmation">
-                        <span>
-                            Disconnect this repository? Stored snapshots remain
-                            untouched.
-                        </span>
+                        <span>Disconnect? Backups stay in the repository.</span>
                         <button
                             type="button"
                             onClick={() => setDisconnectOpen(false)}
@@ -323,6 +325,7 @@ export function Settings({
                             type="time"
                             value={timeValue}
                             onChange={(event) => {
+                                if (!event.target.value) return
                                 const [hour, minute] = event.target.value
                                     .split(":")
                                     .map(Number)
@@ -341,7 +344,7 @@ export function Settings({
                 >
                     <Clock3 size={17} />
                     <span>
-                        <strong>Smart retention</strong>
+                        <strong>Keep snapshots</strong>
                         <small>
                             {preferences.retention.daily} daily ·{" "}
                             {preferences.retention.weekly} weekly ·{" "}
@@ -356,9 +359,8 @@ export function Settings({
                 {retentionOpen && (
                     <div className="retention-editor">
                         <p>
-                            Keep one snapshot for each period. Applied after
-                            every successful backup; the newest snapshot is
-                            always kept.
+                            Older snapshots are removed after each backup. The
+                            newest is always kept.
                         </p>
                         {(["daily", "weekly", "monthly"] as const).map(
                             (period) => (
@@ -390,7 +392,7 @@ export function Settings({
                             disabled={savingRetention}
                             onClick={() => void saveRetention()}
                         >
-                            {savingRetention ? "Applying…" : "Apply"}
+                            {savingRetention ? "Saving…" : "Save"}
                         </button>
                     </div>
                 )}
@@ -416,7 +418,6 @@ export function Settings({
                         <strong>
                             {checking ? "Cancel check" : "Check repository"}
                         </strong>
-                        {checkResult && <small>{checkResult}</small>}
                     </span>
                 </button>
                 <button
@@ -438,20 +439,20 @@ export function Settings({
                         <strong>
                             {repairing ? "Cancel repair" : "Repair index"}
                         </strong>
-                        <small>
-                            Rebuild repository metadata from stored packs
-                        </small>
+                        <small>Rebuild the file index</small>
                     </span>
                 </button>
             </div>
+            {checkResult && (
+                <div className="maintenance-result" role="status">
+                    {checkResult}
+                </div>
+            )}
             <h3>Updates</h3>
             <div className="settings-group">
                 <label>
                     <span>
                         <strong>Automatically install updates</strong>
-                        <small>
-                            Check once a day and update without asking
-                        </small>
                     </span>
                     <button
                         type="button"
@@ -494,8 +495,7 @@ export function Settings({
                 >
                     <Info size={17} />
                     <span>
-                        <strong>Open Source Acknowledgements</strong>
-                        <small>Software that makes Snapshotter possible</small>
+                        <strong>Open-source licenses</strong>
                     </span>
                     <ChevronRight
                         className={acknowledgementsOpen ? "expanded" : ""}
@@ -505,9 +505,7 @@ export function Settings({
                 {acknowledgementsOpen && (
                     <div className="acknowledgements">
                         <strong>restic 0.19.1</strong>
-                        <span>
-                            Fast, secure backup engine · BSD 2-Clause License
-                        </span>
+                        <span>BSD 2-Clause License</span>
                         <span>
                             Copyright © 2014 Alexander Neumann and contributors
                         </span>

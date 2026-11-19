@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     @objc private func backupAttentionChanged(_ notification: Notification) {
         backupAttention = notification.userInfo?["message"] as? String
         statusItem.button?.toolTip = backupAttention ?? "Snapshotter"
+        (popover.contentViewController as? WebViewController)?.showAttention(backupAttention)
         engineActivityChanged(Notification(name: .engineActivityChanged, userInfo: ["active": false]))
     }
 
@@ -130,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             window.backgroundColor = .clear
             window.makeKey()
         }
+        (popover.contentViewController as? WebViewController)?.refreshState()
     }
 
     private func showStatusMenu(from button: NSStatusBarButton) {
@@ -156,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         Updater.shared.attach(webView: message.webView)
         switch request.type {
+        case "app.attention": Backend.shared.attention(backupAttention, requestID: request.id, webView: message.webView)
         case "app.quit": NSApp.terminate(nil)
         case "update.status": Backend.shared.updateStatus(requestID: request.id, webView: message.webView)
         case "update.check": Backend.shared.checkForUpdate(requestID: request.id, webView: message.webView)
@@ -350,6 +353,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
 private final class WebViewController: NSViewController {
     private let configuration: WKWebViewConfiguration
+    private weak var webView: WKWebView?
+
+    func refreshState() {
+        webView?.evaluateJavaScript("window.dispatchEvent(new Event('snapshotter:refresh'))")
+    }
+
+    func showAttention(_ message: String?) {
+        guard let data = try? JSONEncoder().encode(message), let json = String(data: data, encoding: .utf8) else { return }
+        webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('snapshotter:attention', {detail: \(json)}))")
+    }
 
     init(configuration: WKWebViewConfiguration) {
         self.configuration = configuration
@@ -365,6 +378,7 @@ private final class WebViewController: NSViewController {
         materialView.state = .active
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        self.webView = webView
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .clear
         #if DEBUG
@@ -456,19 +470,20 @@ final class Backend: @unchecked Sendable {
             do {
                 let due = try self.checkedResponse(self.engine.get().handle(#"{"type":"schedule.due"}"#))
                 guard Self.responseBoolean(due) else { return }
-                self.beginOperation()
+                guard self.tryBeginOperation() else { return }
                 Self.setActivity(true)
                 let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
                 defer {
                     progressTimer?.cancel()
                     Self.setActivity(false)
                     self.endOperation()
+                    self.notifyStateChanged()
                 }
                 let request = try self.preparedBackupRequest(#"{"type":"backup.start"}"#)
                 _ = try self.checkedResponse(self.engine.get().handle(request))
                 Self.setBackupAttention(nil)
             } catch {
-                Self.setBackupAttention("Scheduled backup failed. Open Snapshotter to retry. \(error.localizedDescription)")
+                Self.setBackupAttention("Backup failed: \(error.localizedDescription)")
             }
         }
     }
@@ -496,7 +511,7 @@ final class Backend: @unchecked Sendable {
                 _ = try self.checkedResponse(self.engine.get().handle(request))
                 Self.setBackupAttention(nil)
             } catch {
-                Self.setBackupAttention("Backups are paused. Open Snapshotter to unlock your repository. \(error.localizedDescription)")
+                Self.setBackupAttention("Unlock to resume backups. \(error.localizedDescription)")
             }
         }
     }
@@ -534,7 +549,10 @@ final class Backend: @unchecked Sendable {
         }
         let showsActivity = Self.requestType(rawRequest).map { $0 == "backup.start" || $0 == "schedule.tick" } == true
         let cancellable = Self.requestType(rawRequest).map(Self.isCancellable) == true
-        if cancellable { beginOperation() }
+        if cancellable && !tryBeginOperation() {
+            fail("Another operation is running. Wait for it to finish.", requestID: requestID, webView: webView)
+            return
+        }
         queue.async {
             if showsActivity { Self.setActivity(true) }
             let progressTimer = showsActivity ? self.startProgressUpdates(reference: reference) : nil
@@ -584,6 +602,20 @@ final class Backend: @unchecked Sendable {
         operationLock.unlock()
     }
 
+    private func tryBeginOperation() -> Bool {
+        operationLock.lock()
+        defer { operationLock.unlock() }
+        guard pendingOperations == 0 else { return false }
+        pendingOperations = 1
+        return true
+    }
+
+    private func notifyStateChanged() {
+        DispatchQueue.main.async {
+            self.webViewReference.webView?.evaluateJavaScript("window.dispatchEvent(new Event('snapshotter:backup-finished'))")
+        }
+    }
+
     private func endOperation() {
         operationLock.lock()
         pendingOperations -= 1
@@ -601,7 +633,6 @@ final class Backend: @unchecked Sendable {
     }
 
     private func startProgressUpdates(reference: WebViewReference, callback: String = "__snapshotterProgress") -> DispatchSourceTimer? {
-        guard reference.webView != nil else { return nil }
         let timer = DispatchSource.makeTimerSource(queue: progressQueue)
         timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(250), leeway: .milliseconds(50))
         timer.setEventHandler { [weak self] in
@@ -706,10 +737,6 @@ final class Backend: @unchecked Sendable {
     }
 
     func restoreSnapshot(snapshotID: String, path: String, destination: String, requestID: String?, webView: WKWebView?) {
-        guard !hasPendingOperation() else {
-            fail("Another backup or maintenance operation is running. Wait for it to finish, then retry restoring.", requestID: requestID, webView: webView)
-            return
-        }
         let payload: [String: Any] = [
             "type": "snapshot.restore",
             "payload": ["snapshotID": snapshotID, "path": path, "destination": destination],
@@ -717,7 +744,10 @@ final class Backend: @unchecked Sendable {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let request = String(data: data, encoding: .utf8) else { return }
         let reference = WebViewReference(webView)
-        beginOperation()
+        guard tryBeginOperation() else {
+            fail("Another operation is running. Wait for it to finish.", requestID: requestID, webView: webView)
+            return
+        }
         queue.async {
             Self.setActivity(true)
             let progressTimer = self.startProgressUpdates(reference: reference, callback: "__snapshotterRestoreProgress")
@@ -754,6 +784,10 @@ final class Backend: @unchecked Sendable {
         Self.respondData(destination as Any? ?? NSNull(), requestID: requestID, reference: WebViewReference(webView))
     }
 
+    func attention(_ message: String?, requestID: String?, webView: WKWebView?) {
+        Self.respondData(message as Any? ?? NSNull(), requestID: requestID, reference: WebViewReference(webView))
+    }
+
     func discoverOnePasswordAccounts(requestID: String?, webView: WKWebView?) {
         let reference = WebViewReference(webView)
         queue.async {
@@ -775,8 +809,11 @@ final class Backend: @unchecked Sendable {
 
     func checkForUpdate(requestID: String?, webView: WKWebView?) {
         let reference = WebViewReference(webView)
-        Updater.shared.checkNow { update in
-            Self.respondData(update.dictionary, requestID: requestID, reference: reference)
+        Updater.shared.checkNow { result in
+            switch result {
+            case let .success(update): Self.respondData(update.dictionary, requestID: requestID, reference: reference)
+            case let .failure(error): Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
+            }
         }
     }
 

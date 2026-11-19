@@ -307,7 +307,7 @@ footer {
     height: 26px;
     flex: 0 0 auto;
     place-items: center;
-    color: var(--success);
+    color: var(--muted-foreground);
     background: transparent;
 }
 
@@ -979,6 +979,7 @@ small {
 
 .schedule-editor {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
@@ -1046,7 +1047,31 @@ small {
 }
 
 .schedule-editor input {
-    width: 78px;
+    width: 126px;
+}
+
+.load-error,
+.maintenance-result {
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+}
+
+.load-error {
+    color: var(--destructive);
+    justify-items: start;
+}
+
+.setup-help {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.setup-help summary {
+    cursor: pointer;
 }
 
 .expanded {

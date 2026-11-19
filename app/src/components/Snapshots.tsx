@@ -24,9 +24,11 @@ import type { ApplicationState, Snapshot, SnapshotEntry } from "../model"
 export function Snapshots({
     snapshots,
     onState,
+    onBusyChange,
 }: {
     snapshots: Snapshot[]
     onState: (state: ApplicationState) => void
+    onBusyChange?: (busy: boolean) => void
 }) {
     const [query, setQuery] = useState("")
     const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot>()
@@ -41,6 +43,7 @@ export function Snapshots({
         return (
             <SnapshotBrowser
                 snapshot={selectedSnapshot}
+                onBusyChange={onBusyChange}
                 onBack={() => setSelectedSnapshot(undefined)}
                 onDeleted={(state) => {
                     setSelectedSnapshot(undefined)
@@ -102,10 +105,12 @@ export function SnapshotBrowser({
     snapshot,
     onBack,
     onDeleted,
+    onBusyChange,
 }: {
     snapshot: Snapshot
     onBack: () => void
     onDeleted: (state: ApplicationState) => void
+    onBusyChange?: (busy: boolean) => void
 }) {
     const [path, setPath] = useState("/")
     const [entries, setEntries] = useState<SnapshotEntry[]>([])
@@ -117,15 +122,20 @@ export function SnapshotBrowser({
     const [restoring, setRestoring] = useState(false)
     const [choosingDestination, setChoosingDestination] = useState(false)
     const [cancelling, setCancelling] = useState(false)
+    const [loadError, setLoadError] = useState<string>()
+    const [attempt, setAttempt] = useState(0)
+
+    useEffect(() => {
+        onBusyChange?.(restoring || deleting)
+        return () => onBusyChange?.(false)
+    }, [restoring, deleting, onBusyChange])
 
     useEffect(
         () =>
             subscribeToRestoreProgress((progress) => {
                 if (!restoring || choosingDestination || cancelling) return
                 if (progress.phase === "preparing-restore")
-                    setStatus(
-                        "Preparing restore: loading the repository index…",
-                    )
+                    setStatus("Preparing restore…")
                 if (progress.phase === "restoring")
                     setStatus(
                         `Restoring… ${formatCount(progress.filesDone ?? 0)} files processed · ${formatBytes(progress.bytesDone ?? 0)}`,
@@ -137,6 +147,8 @@ export function SnapshotBrowser({
     useEffect(() => {
         let active = true
         setLoading(true)
+        setEntries([])
+        setLoadError(undefined)
         setSelected(undefined)
         requestNative<SnapshotEntry[]>("snapshot.list", {
             snapshotID: snapshot.id,
@@ -146,7 +158,7 @@ export function SnapshotBrowser({
                 if (active) setEntries(items ?? [])
             })
             .catch((error) => {
-                if (active) setStatus(message(error))
+                if (active) setLoadError(message(error))
             })
             .finally(() => {
                 if (active) setLoading(false)
@@ -154,7 +166,7 @@ export function SnapshotBrowser({
         return () => {
             active = false
         }
-    }, [path, snapshot.id])
+    }, [path, snapshot.id, attempt])
 
     const restore = async () => {
         const restorePath = selected?.path ?? path
@@ -170,9 +182,7 @@ export function SnapshotBrowser({
                 setStatus("Restore cancelled")
                 return
             }
-            setStatus(
-                `Restoring to ${destination}… Large restores can take a while.`,
-            )
+            setStatus(`Restoring to ${destination}…`)
             const result = await requestNative<{ restoredFiles: number }>(
                 "snapshot.restore",
                 { snapshotID: snapshot.id, path: restorePath, destination },
@@ -250,7 +260,7 @@ export function SnapshotBrowser({
                     onClick={() =>
                         void (restoring ? cancelOperation() : restore())
                     }
-                    disabled={loading || deleting || cancelling}
+                    disabled={loading || !!loadError || deleting || cancelling}
                 >
                     {restoring ? (
                         <Square size={11} fill="currentColor" />
@@ -261,8 +271,20 @@ export function SnapshotBrowser({
                 </button>
             </div>
             <div className="entry-list">
+                {loadError && (
+                    <div className="load-error" role="alert">
+                        <span>{loadError}</span>
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setAttempt((value) => value + 1)}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
                 {loading && <div className="empty-row">Loading…</div>}
-                {!loading && entries.length === 0 && (
+                {!loading && !loadError && entries.length === 0 && (
                     <div className="empty-row">This folder is empty</div>
                 )}
                 {!loading &&
@@ -274,7 +296,12 @@ export function SnapshotBrowser({
                             disabled={restoring || deleting}
                             onClick={() => {
                                 if (entry.type === "dir") setPath(entry.path)
-                                else setSelected(entry)
+                                else
+                                    setSelected(
+                                        selected?.path === entry.path
+                                            ? undefined
+                                            : entry,
+                                    )
                             }}
                         >
                             {entry.type === "dir" ? (
@@ -307,7 +334,9 @@ export function SnapshotBrowser({
                     </button>
                 ) : (
                     <div className="delete-confirmation">
-                        <span>Delete this snapshot and reclaim its space?</span>
+                        <span>
+                            Delete this snapshot? This cannot be undone.
+                        </span>
                         <button
                             type="button"
                             onClick={() =>

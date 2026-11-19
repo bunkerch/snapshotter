@@ -1,9 +1,9 @@
 import {
     ChevronRight,
+    Clock3,
     Folder,
     Play,
     Plus,
-    ShieldCheck,
     Square,
     Trash2,
 } from "lucide-react"
@@ -44,7 +44,15 @@ export function Overview({
     onSnapshots: () => void
     onState: (state: ApplicationState) => void
 }) {
-    const latest = state.snapshots[0]
+    const latest = state.backup?.lastBackup
+    const sourceCount =
+        state.backup?.sourceCount ??
+        state.preferences.sources.filter(
+            (source) => source.enabled && !source.excluded,
+        ).length +
+            state.applicationPresets.filter(
+                (application) => application.enabled && application.available,
+            ).length
     const [sourceEditorOpen, setSourceEditorOpen] = useState(false)
     const [sourcePath, setSourcePath] = useState("")
     const [sourceError, setSourceError] = useState<string>()
@@ -52,6 +60,7 @@ export function Overview({
     const [busySourceID, setBusySourceID] = useState<string>()
 
     const addTypedSource = async () => {
+        if (addingSource || !sourcePath.trim()) return
         setAddingSource(true)
         try {
             await onAddSourcePath(sourcePath)
@@ -97,33 +106,33 @@ export function Overview({
         <>
             <section className="hero-card">
                 <div className={`status-orb ${running ? "working" : ""}`}>
-                    <ShieldCheck />
+                    <Clock3 />
                 </div>
                 <div className="hero-copy">
                     <h1>
                         {running
                             ? "Backing up…"
-                            : latest
-                              ? "Protected"
-                              : "Ready for first backup"}
+                            : state.backup?.due && latest
+                              ? "Backup overdue"
+                              : latest
+                                ? "Last backup"
+                                : "Not backed up"}
                     </h1>
                     <p>
-                        {running && progress && progress.filesDone > 0
+                        {running && progress
                             ? `${formatCount(progress.filesDone)} files · ${formatBytes(progress.bytesDone)}`
                             : latest
-                              ? `Last backup ${formatRelative(latest.time)}`
-                              : `${state.preferences.sources.length + state.preferences.selectedApps.length} sources selected`}
+                              ? formatRelative(latest)
+                              : sourceCount > 0
+                                ? `${sourceCount} ${sourceCount === 1 ? "source" : "sources"} selected`
+                                : "Choose a folder or application"}
                     </p>
                 </div>
                 <button
                     type="button"
                     className={running ? "cancel-button" : "primary-button"}
                     onClick={running ? onCancel : onBackup}
-                    disabled={
-                        !running &&
-                        state.preferences.sources.length === 0 &&
-                        state.preferences.selectedApps.length === 0
-                    }
+                    disabled={!running && sourceCount === 0}
                 >
                     {running ? (
                         <Square size={11} fill="currentColor" />
@@ -181,11 +190,11 @@ export function Overview({
                     >
                         Add
                     </button>
-                    {sourceError && (
-                        <span className="form-error" role="alert">
-                            {sourceError}
-                        </span>
-                    )}
+                </div>
+            )}
+            {sourceError && (
+                <div className="form-error" role="alert">
+                    {sourceError}
                 </div>
             )}
             <section className="list-card source-list">
@@ -207,7 +216,7 @@ export function Overview({
                             aria-checked={source.enabled}
                             className={`switch source-switch ${source.enabled ? "on" : ""}`}
                             aria-label={`${source.enabled ? "Disable" : "Enable"} ${basename(source.path)}`}
-                            disabled={busySourceID === source.id}
+                            disabled={busySourceID !== undefined || running}
                             onClick={() =>
                                 void setSourceEnabled(
                                     source.id,
@@ -221,7 +230,7 @@ export function Overview({
                             type="button"
                             className="icon-button source-remove"
                             aria-label={`Remove ${basename(source.path)}`}
-                            disabled={busySourceID === source.id}
+                            disabled={busySourceID !== undefined || running}
                             onClick={() => void removeSource(source.id)}
                         >
                             <Trash2 size={13} />
@@ -237,9 +246,7 @@ export function Overview({
             />
             <section className="list-card snapshot-list">
                 {state.snapshots.length === 0 && (
-                    <div className="empty-row">
-                        No snapshots yet — your first backup is one click away
-                    </div>
+                    <div className="empty-row">No snapshots yet</div>
                 )}
                 {state.snapshots.slice(0, 2).map((snapshot) => (
                     <button
@@ -283,8 +290,10 @@ export function BackupContentControls({
                 ),
             )
             setContentError(undefined)
+            return true
         } catch (error) {
             setContentError(message(error))
+            return false
         } finally {
             setPending(false)
         }
@@ -292,8 +301,9 @@ export function BackupContentControls({
 
     const addExclusion = async () => {
         if (!customExclusion.trim()) return
-        await update("exclusion.add", { pattern: customExclusion })
-        setCustomExclusion("")
+        if (pending) return
+        if (await update("exclusion.add", { pattern: customExclusion }))
+            setCustomExclusion("")
     }
 
     return (
@@ -370,10 +380,6 @@ export function BackupContentControls({
             )}
             {exclusionsOpen && (
                 <div className="choice-editor exclusions-editor">
-                    <p>
-                        Skips reproducible dependencies, build output, and
-                        caches inside every selected source.
-                    </p>
                     {state.preferences.exclusions.map((exclusion) => (
                         <label key={exclusion.id}>
                             <span>

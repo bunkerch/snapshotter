@@ -14,6 +14,65 @@ afterEach(() => {
     delete window.webkit
 })
 
+it("clears the previous folder when loading the next one fails and can retry", async () => {
+    let failed = false
+    window.webkit = {
+        messageHandlers: {
+            resticNative: {
+                postMessage(raw) {
+                    const { id, type, payload } = JSON.parse(raw)
+                    if (type !== "snapshot.list") throw new Error(type)
+                    if (payload.path === "/")
+                        window.__snapshotterResolve?.(id, {
+                            ok: true,
+                            data: [
+                                {
+                                    name: "Documents",
+                                    path: "/Documents",
+                                    type: "dir",
+                                    size: 0,
+                                    modTime: "",
+                                },
+                            ],
+                        })
+                    else if (!failed) {
+                        failed = true
+                        window.__snapshotterResolve?.(id, {
+                            ok: false,
+                            error: "Connection lost",
+                        })
+                    } else
+                        window.__snapshotterResolve?.(id, {
+                            ok: true,
+                            data: [],
+                        })
+                },
+            },
+        },
+    }
+    render(
+        <SnapshotBrowser
+            snapshot={{
+                id: "snapshot",
+                time: "2026-01-01",
+                hostname: "mac",
+                paths: [],
+                tags: [],
+                fileCount: 1,
+                totalSize: 1,
+            }}
+            onBack={vi.fn()}
+            onDeleted={vi.fn()}
+        />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /Documents/ }))
+    await screen.findByText("Connection lost")
+    expect(screen.queryByRole("button", { name: /Documents/ })).toBeNull()
+    expect(screen.queryByText("This folder is empty")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    await screen.findByText("This folder is empty")
+})
+
 it("leaves destination selection while restore runs, then allows a second restore", async () => {
     const restores: string[] = []
     window.webkit = {

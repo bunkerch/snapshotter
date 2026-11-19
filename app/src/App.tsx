@@ -21,12 +21,18 @@ export function App() {
     const [view, setView] = useState<View>("overview")
     const [state, setState] = useState<ApplicationState>()
     const [error, setError] = useState<string>()
+    const [backgroundError, setBackgroundError] = useState<string>()
     const [running, setRunning] = useState(false)
+    const [operationBusy, setOperationBusy] = useState(false)
     const [backupProgress, setBackupProgress] = useState<BackupProgress>()
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>()
     const manualBackupRunning = useRef(false)
+    const previousBackupPhase = useRef<string | undefined>(undefined)
+    const refreshing = useRef(false)
 
     const refresh = useCallback(async () => {
+        if (refreshing.current) return
+        refreshing.current = true
         try {
             setState(
                 normalizeState(
@@ -36,12 +42,54 @@ export function App() {
             setError(undefined)
         } catch (requestError) {
             setError(message(requestError))
+        } finally {
+            refreshing.current = false
         }
     }, [])
 
     useEffect(() => {
         void refresh()
+        const refreshState = () => {
+            void refresh()
+        }
+        window.addEventListener("snapshotter:refresh", refreshState)
+        const finishBackup = () => {
+            if (!manualBackupRunning.current) {
+                setRunning(false)
+                setBackupProgress(undefined)
+            }
+            void refresh()
+        }
+        window.addEventListener("snapshotter:backup-finished", finishBackup)
+        return () => {
+            window.removeEventListener("snapshotter:refresh", refreshState)
+            window.removeEventListener(
+                "snapshotter:backup-finished",
+                finishBackup,
+            )
+        }
     }, [refresh])
+
+    useEffect(() => {
+        let active = true
+        let receivedAttention = false
+        const showAttention = (event: Event) => {
+            receivedAttention = true
+            const detail = (event as CustomEvent<unknown>).detail
+            setBackgroundError(typeof detail === "string" ? detail : undefined)
+        }
+        window.addEventListener("snapshotter:attention", showAttention)
+        void requestNative<string | null>("app.attention")
+            .then((value) => {
+                if (active && !receivedAttention && typeof value === "string")
+                    setBackgroundError(value)
+            })
+            .catch(() => {})
+        return () => {
+            active = false
+            window.removeEventListener("snapshotter:attention", showAttention)
+        }
+    }, [])
 
     useEffect(() => {
         const refreshUpdate = async () => {
@@ -65,6 +113,10 @@ export function App() {
     useEffect(
         () =>
             subscribeToBackupProgress((progress) => {
+                const wasRunning =
+                    previousBackupPhase.current === "backing-up" ||
+                    previousBackupPhase.current === "finalizing"
+                previousBackupPhase.current = progress.phase
                 if (
                     progress.phase === "backing-up" ||
                     progress.phase === "finalizing"
@@ -76,7 +128,10 @@ export function App() {
                     progress.phase === "cancelled" ||
                     progress.phase === "error"
                 ) {
-                    if (!manualBackupRunning.current) setRunning(false)
+                    if (!manualBackupRunning.current) {
+                        setRunning(false)
+                        if (wasRunning) void refresh()
+                    }
                 }
                 setBackupProgress({
                     phase: progress.phase as BackupProgress["phase"],
@@ -84,7 +139,7 @@ export function App() {
                     bytesDone: progress.bytesDone ?? 0,
                 })
             }),
-        [],
+        [refresh],
     )
 
     const backupNow = async () => {
@@ -159,6 +214,7 @@ export function App() {
                 view={view}
                 onView={setView}
                 showNavigation={state?.status === "ready"}
+                busy={operationBusy}
             />
             <div className="app-content">
                 {updateStatus?.available && (
@@ -171,6 +227,11 @@ export function App() {
                 {error && (
                     <div className="error-banner" role="alert">
                         {error}
+                    </div>
+                )}
+                {backgroundError && (
+                    <div className="error-banner" role="alert">
+                        {backgroundError}
                     </div>
                 )}
                 {state?.warning && (
@@ -206,6 +267,7 @@ export function App() {
                 {state?.status === "ready" && view === "snapshots" && (
                     <Snapshots
                         snapshots={state.snapshots}
+                        onBusyChange={setOperationBusy}
                         onState={(next) => setState(normalizeState(next))}
                     />
                 )}
@@ -214,6 +276,7 @@ export function App() {
                         state={state}
                         onState={(next) => setState(normalizeState(next))}
                         onUpdateStatus={setUpdateStatus}
+                        onBusyChange={setOperationBusy}
                     />
                 )}
             </div>
