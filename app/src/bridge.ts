@@ -32,6 +32,7 @@ declare global {
         ) => void
         __snapshotterPackaged?: boolean
         __snapshotterProgress?: (progress: NativeBackupProgress) => void
+        __snapshotterRestoreProgress?: (progress: NativeBackupProgress) => void
         __snapshotterUpdate?: (update: UpdateStatus) => void
     }
 }
@@ -52,6 +53,19 @@ export function subscribeToBackupProgress(
 }
 
 const updateListeners = new Set<(update: UpdateStatus) => void>()
+
+const restoreListeners = new Set<(progress: NativeBackupProgress) => void>()
+window.__snapshotterRestoreProgress = (progress) => {
+    for (const listener of restoreListeners) listener(progress)
+}
+export function subscribeToRestoreProgress(
+    listener: (progress: NativeBackupProgress) => void,
+) {
+    restoreListeners.add(listener)
+    return () => {
+        restoreListeners.delete(listener)
+    }
+}
 
 window.__snapshotterUpdate = (update) => {
     for (const listener of updateListeners) listener(update)

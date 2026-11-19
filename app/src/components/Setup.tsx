@@ -51,6 +51,8 @@ export function Setup({
         onePasswordRequestGeneration.current += 1
         setOnePasswordItems([])
         setOnePasswordItemID("")
+        setLoadingItems(false)
+        setLoadingVaults(false)
     }
 
     const clearOnePasswordSelections = () => {
@@ -122,7 +124,13 @@ export function Setup({
             })
             if (generation !== onePasswordRequestGeneration.current) return
             setOnePasswordItems(items)
-            setOnePasswordItemID("")
+            const item = items.length === 1 ? items[0] : undefined
+            setOnePasswordItemID(item?.id ?? "")
+            if (item) {
+                setName(item.title)
+                if (item.kind) setKind(item.kind)
+                if (item.location) setLocation(item.location)
+            }
             setError(
                 items.length === 0
                     ? "No Snapshotter items were found in this vault."
@@ -337,7 +345,7 @@ export function Setup({
                                             )
                                             if (!item) return
                                             setName(item.title)
-                                            setKind(item.kind ?? "local")
+                                            if (item.kind) setKind(item.kind)
                                             setLocation(item.location ?? "")
                                         }}
                                     >
@@ -379,6 +387,17 @@ export function Setup({
                     </button>
                 ))}
             </fieldset>
+            {usesExistingOnePasswordItem &&
+                !onePasswordItems.find((item) => item.id === onePasswordItemID)
+                    ?.location && (
+                    <p className="setup-hint" role="status">
+                        This older 1Password item has no saved destination.
+                        Select your repository type and enter its existing
+                        address (or choose its folder). Snapshotter will save it
+                        in 1Password after connecting so you only need to do
+                        this once.
+                    </p>
+                )}
             <label>
                 Name
                 <input

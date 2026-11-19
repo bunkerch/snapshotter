@@ -5,13 +5,29 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, NSPopoverDelegate {
     private let popover = NSPopover()
     private var statusItem: NSStatusItem!
+    private var restorePanel: NSOpenPanel?
+    private var backupAttention: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NotificationCenter.default.addObserver(self, selector: #selector(engineActivityChanged(_:)), name: .engineActivityChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(backupAttentionChanged(_:)), name: Notification.Name("snapshotter.backupAttention"), object: nil)
         configureMainMenu()
         configurePopover()
         configureStatusItem()
+        Backend.shared.start()
+    }
+
+    @objc private func backupAttentionChanged(_ notification: Notification) {
+        backupAttention = notification.userInfo?["message"] as? String
+        statusItem.button?.toolTip = backupAttention ?? "Snapshotter"
+        engineActivityChanged(Notification(name: .engineActivityChanged, userInfo: ["active": false]))
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        restorePanel?.cancel(nil)
+        Backend.shared.shutdown()
+        return .terminateLater
     }
 
     @objc private func engineActivityChanged(_ notification: Notification) {
@@ -29,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             layer.add(rotation, forKey: "snapshotter.backup.rotation")
         } else {
             button.layer?.removeAnimation(forKey: "snapshotter.backup.rotation")
-            button.image = NSImage(systemSymbolName: "shield.checkered", accessibilityDescription: "Snapshotter")
+            button.image = NSImage(systemSymbolName: backupAttention == nil ? "shield.checkered" : "exclamationmark.shield", accessibilityDescription: backupAttention ?? "Snapshotter")
             button.image?.isTemplate = true
         }
     }
@@ -119,6 +135,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private func showStatusMenu(from button: NSStatusBarButton) {
         popover.performClose(nil)
         let menu = NSMenu()
+        if let backupAttention {
+            let attention = menu.addItem(withTitle: backupAttention, action: nil, keyEquivalent: "")
+            attention.isEnabled = false
+            menu.addItem(.separator())
+        }
         let open = menu.addItem(withTitle: "Open Snapshotter", action: #selector(openPopover), keyEquivalent: "")
         open.target = self
         menu.addItem(.separator())
@@ -145,7 +166,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "repository.unlock": unlockRepository(request: request, raw: raw, webView: message.webView)
         case "repository.disconnect": disconnectRepository(request: request, raw: raw, webView: message.webView)
         case "onepassword.accounts": Backend.shared.discoverOnePasswordAccounts(requestID: request.id, webView: message.webView)
-        case "snapshot.restore.choose": chooseRestoreDestination(request: request, webView: message.webView)
+        case "restore.destination.choose": chooseRestoreDestination(request: request, webView: message.webView)
+        case "restore.destination.cancel":
+            restorePanel?.cancel(nil)
+            Backend.shared.succeed(requestID: request.id, webView: message.webView)
+        case "snapshot.restore":
+            guard let snapshotID = request.payload?.snapshotID,
+                  let path = request.payload?.path,
+                  let destination = request.payload?.destination, !destination.isEmpty else {
+                Backend.shared.fail("Snapshot, path, and destination are required", requestID: request.id, webView: message.webView)
+                return
+            }
+            Backend.shared.restoreSnapshot(snapshotID: snapshotID, path: path, destination: destination, requestID: request.id, webView: message.webView)
         case "snapshot.metadata": Backend.shared.fail("Snapshot metadata is only available to the native restore flow", requestID: request.id, webView: message.webView)
         case "operation.cancel": Backend.shared.cancel(requestID: request.id, webView: message.webView)
         case "url.open": openExternalURL(request.payload?.url, requestID: request.id, webView: message.webView)
@@ -160,32 +192,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     private func chooseRestoreDestination(request: BridgeRequest, webView: WKWebView?) {
-        guard let snapshotID = request.payload?.snapshotID,
-              let path = request.payload?.path else {
-            Backend.shared.fail("Snapshot and path are required", requestID: request.id, webView: webView)
+        guard restorePanel == nil else {
+            restorePanel?.makeKeyAndOrderFront(nil)
+            Backend.shared.fail("A restore destination picker is already open", requestID: request.id, webView: webView)
             return
         }
         popover.performClose(nil)
         let panel = NSOpenPanel()
+        restorePanel = panel
         panel.title = "Choose Restore Destination"
         panel.prompt = "Restore Here"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Restored files keep their original folder hierarchy inside the destination. Existing changed files may be replaced."
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
+            self.restorePanel = nil
             defer { self.openPopover() }
             guard response == .OK, let destination = panel.url else {
-                Backend.shared.fail("Restore cancelled", requestID: request.id, webView: webView)
+                Backend.shared.restoreDestination(nil, requestID: request.id, webView: webView)
                 return
             }
-            Backend.shared.restoreSnapshot(
-                snapshotID: snapshotID,
-                path: path,
-                destination: destination.path,
-                requestID: request.id,
-                webView: webView
-            )
+            Backend.shared.restoreDestination(destination.path, requestID: request.id, webView: webView)
         }
         panel.makeKeyAndOrderFront(nil)
     }
@@ -375,6 +405,7 @@ private struct BridgePayload: Decodable, Sendable {
     let url: String?
     let snapshotID: String?
     let path: String?
+    let destination: String?
     let kind: String?
     let location: String?
     let credentials: [String: String]?
@@ -396,39 +427,104 @@ private struct SecretStoragePayload: Decodable, Sendable {
     }
 }
 
-private final class Backend: @unchecked Sendable {
+final class Backend: @unchecked Sendable {
     static let shared = Backend()
     private let queue = DispatchQueue(label: "app.snapshotter.engine", qos: .utility)
     private let progressQueue = DispatchQueue(label: "app.snapshotter.progress", qos: .utility)
     private let operationLock = NSLock()
     private let keychain = KeychainStore()
-    private let engine: Result<EngineBridge, Error>
+    private let engine: Result<any NativeEngine, Error>
     private let webViewReference = WebViewReference(nil)
     private var scheduleTimer: DispatchSourceTimer?
     private var pendingOperations = 0
 
-    private init() {
-        engine = Result { try EngineBridge() }
+    init(engine: Result<any NativeEngine, Error> = Result { try EngineBridge() }) {
+        self.engine = engine
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 10, repeating: 60)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             Updater.shared.checkIfDue()
-            self.beginOperation()
-            Self.setActivity(true)
-            let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
-            defer {
-                progressTimer?.cancel()
-                Self.setActivity(false)
-                self.endOperation()
-            }
-            guard let due = try? self.engine.get().handle(#"{"type":"schedule.due"}"#),
-                  Self.responseBoolean(due) else { return }
-            guard let request = try? self.preparedBackupRequest(#"{"type":"backup.start"}"#) else { return }
-            _ = try? self.engine.get().handle(request)
+            self.runScheduledBackup()
         }
         timer.resume()
         scheduleTimer = timer
+    }
+
+    func runScheduledBackup() {
+        queue.async {
+            do {
+                let due = try self.checkedResponse(self.engine.get().handle(#"{"type":"schedule.due"}"#))
+                guard Self.responseBoolean(due) else { return }
+                self.beginOperation()
+                Self.setActivity(true)
+                let progressTimer = self.startProgressUpdates(reference: self.webViewReference)
+                defer {
+                    progressTimer?.cancel()
+                    Self.setActivity(false)
+                    self.endOperation()
+                }
+                let request = try self.preparedBackupRequest(#"{"type":"backup.start"}"#)
+                _ = try self.checkedResponse(self.engine.get().handle(request))
+                Self.setBackupAttention(nil)
+            } catch {
+                Self.setBackupAttention("Scheduled backup failed. Open Snapshotter to retry. \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // Start independently of WKWebView creation or the first menu-bar click.
+    func start() {
+        queue.async {
+            self.beginOperation()
+            defer { self.endOperation() }
+            do {
+                let response = try self.checkedResponse(self.engine.get().handle(#"{"type":"state.get"}"#))
+                guard let data = response.data(using: .utf8),
+                      let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let state = envelope["data"] as? [String: Any],
+                      state["status"] as? String == "locked",
+                      let preferences = state["preferences"] as? [String: Any],
+                      let repository = preferences["repository"] as? [String: Any],
+                      let repositoryID = repository["id"] as? String else { return }
+                let request: String
+                if repository["secretStorage"] is [String: Any] {
+                    request = #"{"type":"repository.unlock","payload":{}}"#
+                } else {
+                    request = try self.keychainUnlockRequest(repositoryID: repositoryID)
+                }
+                _ = try self.checkedResponse(self.engine.get().handle(request))
+                Self.setBackupAttention(nil)
+            } catch {
+                Self.setBackupAttention("Backups are paused. Open Snapshotter to unlock your repository. \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func shutdown() {
+        scheduleTimer?.cancel()
+        cancel(requestID: nil, webView: nil)
+        queue.async {
+            try? self.engine.get().close()
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+    }
+
+    private func checkedResponse(_ response: String) throws -> String {
+        guard let data = response.data(using: .utf8),
+              let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw EngineBridgeError.invalidResponse
+        }
+        guard envelope["ok"] as? Bool == true else {
+            throw NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: envelope["error"] as? String ?? "Engine request failed"])
+        }
+        return response
+    }
+
+    private static func setBackupAttention(_ message: String?) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Notification.Name("snapshotter.backupAttention"), object: nil, userInfo: message.map { ["message": $0] } ?? [:])
+        }
     }
 
     func handle(_ rawRequest: String, requestID: String?, webView: WKWebView?) {
@@ -450,6 +546,9 @@ private final class Backend: @unchecked Sendable {
             do {
                 let request = showsActivity ? try self.preparedBackupRequest(rawRequest) : rawRequest
                 let response = try self.engine.get().handle(request)
+                if Self.isSuccessful(response), ["repository.unlock", "backup.start"].contains(Self.requestType(request) ?? "") {
+                    Self.setBackupAttention(nil)
+                }
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
@@ -501,7 +600,7 @@ private final class Backend: @unchecked Sendable {
         shared.hasPendingOperation()
     }
 
-    private func startProgressUpdates(reference: WebViewReference) -> DispatchSourceTimer? {
+    private func startProgressUpdates(reference: WebViewReference, callback: String = "__snapshotterProgress") -> DispatchSourceTimer? {
         guard reference.webView != nil else { return nil }
         let timer = DispatchSource.makeTimerSource(queue: progressQueue)
         timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(250), leeway: .milliseconds(50))
@@ -509,7 +608,7 @@ private final class Backend: @unchecked Sendable {
             guard let self,
                   let progress = try? self.engine.get().progress() else { return }
             DispatchQueue.main.async {
-                reference.webView?.evaluateJavaScript("window.__snapshotterProgress?.(\(progress))")
+                reference.webView?.evaluateJavaScript("window.\(callback)?.(\(progress))")
             }
         }
         timer.resume()
@@ -527,7 +626,7 @@ private final class Backend: @unchecked Sendable {
         handle(request, requestID: requestID, webView: webView)
     }
 
-    func configureRepository(name: String, kind: String, location: String, password: String, credentials: [String: String], secretStorage: SecretStoragePayload?, requestID: String?, webView: WKWebView?) {
+    fileprivate func configureRepository(name: String, kind: String, location: String, password: String, credentials: [String: String], secretStorage: SecretStoragePayload?, requestID: String?, webView: WKWebView?) {
         let repositoryID = UUID().uuidString.lowercased()
         var repository: [String: Any] = ["id": repositoryID, "name": name, "kind": kind, "location": location]
         if let secretStorage {
@@ -568,21 +667,26 @@ private final class Backend: @unchecked Sendable {
         let reference = WebViewReference(webView)
         queue.async {
             do {
-                guard let password = try self.keychain.password(repositoryID: repositoryID) else {
-                    throw NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Repository password was not found in Keychain"])
-                }
-                let encodedCredentials = try self.keychain.credentials(repositoryID: repositoryID) ?? "{}"
-                let credentialsData = Data(encodedCredentials.utf8)
-                let credentials = try JSONSerialization.jsonObject(with: credentialsData) as? [String: String] ?? [:]
-                let payload = ["type": "repository.unlock", "payload": ["password": password, "credentials": credentials]] as [String: Any]
-                let data = try JSONSerialization.data(withJSONObject: payload)
-                guard let request = String(data: data, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
+                let request = try self.keychainUnlockRequest(repositoryID: repositoryID)
                 let response = try self.engine.get().handle(request)
+                if Self.isSuccessful(response) { Self.setBackupAttention(nil) }
                 Self.respond(response, requestID: requestID, reference: reference)
             } catch {
                 Self.respond(Self.errorResponse(error), requestID: requestID, reference: reference)
             }
         }
+    }
+
+    private func keychainUnlockRequest(repositoryID: String) throws -> String {
+        guard let password = try keychain.password(repositoryID: repositoryID) else {
+            throw NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Repository password was not found in Keychain"])
+        }
+        let encodedCredentials = try keychain.credentials(repositoryID: repositoryID) ?? "{}"
+        let credentials = try JSONSerialization.jsonObject(with: Data(encodedCredentials.utf8)) as? [String: String] ?? [:]
+        let payload = ["type": "repository.unlock", "payload": ["password": password, "credentials": credentials]] as [String: Any]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        guard let request = String(data: data, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
+        return request
     }
 
     func disconnectRepository(repositoryID: String, request: String, requestID: String?, webView: WKWebView?) {
@@ -602,6 +706,10 @@ private final class Backend: @unchecked Sendable {
     }
 
     func restoreSnapshot(snapshotID: String, path: String, destination: String, requestID: String?, webView: WKWebView?) {
+        guard !hasPendingOperation() else {
+            fail("Another backup or maintenance operation is running. Wait for it to finish, then retry restoring.", requestID: requestID, webView: webView)
+            return
+        }
         let payload: [String: Any] = [
             "type": "snapshot.restore",
             "payload": ["snapshotID": snapshotID, "path": path, "destination": destination],
@@ -611,12 +719,19 @@ private final class Backend: @unchecked Sendable {
         let reference = WebViewReference(webView)
         beginOperation()
         queue.async {
-            defer { self.endOperation() }
+            Self.setActivity(true)
+            let progressTimer = self.startProgressUpdates(reference: reference, callback: "__snapshotterRestoreProgress")
+            defer {
+                progressTimer?.cancel()
+                Self.setActivity(false)
+                self.endOperation()
+            }
             do {
                 let metadataPayload: [String: Any] = ["type": "snapshot.metadata", "payload": ["snapshotID": snapshotID]]
                 let metadataData = try JSONSerialization.data(withJSONObject: metadataPayload)
                 guard let metadataRequest = String(data: metadataData, encoding: .utf8) else { throw EngineBridgeError.invalidResponse }
-                let metadataResponse = try? self.engine.get().handle(metadataRequest)
+                let metadataResponse = (destination as NSString).standardizingPath == "/"
+                    ? try? self.engine.get().handle(metadataRequest) : nil
                 let response = try self.engine.get().handle(request)
                 if Self.isSuccessful(response),
                    (destination as NSString).standardizingPath == "/",
@@ -633,6 +748,10 @@ private final class Backend: @unchecked Sendable {
     func fail(_ message: String, requestID: String?, webView: WKWebView?) {
         let error = NSError(domain: "Snapshotter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         Self.respond(Self.errorResponse(error), requestID: requestID, reference: WebViewReference(webView))
+    }
+
+    func restoreDestination(_ destination: String?, requestID: String?, webView: WKWebView?) {
+        Self.respondData(destination as Any? ?? NSNull(), requestID: requestID, reference: WebViewReference(webView))
     }
 
     func discoverOnePasswordAccounts(requestID: String?, webView: WKWebView?) {

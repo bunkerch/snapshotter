@@ -16,6 +16,7 @@ let package = Package(
                 .linkedFramework("Security"),
                 .linkedLibrary("sqlite3"),
             ]
-        )
+        ),
+        .testTarget(name: "SnapshotterTests", dependencies: ["Snapshotter"], path: "Tests")
     ]
 )

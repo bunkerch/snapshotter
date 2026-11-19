@@ -30,6 +30,7 @@ type runtime struct {
 	onePassword            secretStore
 	coordinator            service.Coordinator
 	lastBackupCancellation time.Time
+	recoveryWarning        string
 }
 
 type secretStore interface {
@@ -77,6 +78,7 @@ type applicationState struct {
 	ApplicationPresets []domain.ApplicationPreset `json:"applicationPresets"`
 	Snapshots          []domain.Snapshot          `json:"snapshots"`
 	Status             string                     `json:"status"`
+	Warning            string                     `json:"warning,omitempty"`
 }
 
 func newRuntime(preferencesPath string) *runtime {
@@ -252,7 +254,8 @@ func (r *runtime) restoreSnapshot(ctx context.Context, payload json.RawMessage) 
 		return nil, err
 	}
 	defer done()
-	count, err := r.repository.Restore(operationContext, input.SnapshotID, input.Path, input.Destination)
+	r.setBackupProgress(service.Progress{Phase: "preparing-restore"})
+	count, err := r.repository.RestoreWithProgress(operationContext, input.SnapshotID, input.Path, input.Destination, r.setBackupProgress)
 	if err != nil {
 		return nil, err
 	}
@@ -392,6 +395,7 @@ func (r *runtime) state(ctx context.Context) (applicationState, error) {
 		return applicationState{}, fmt.Errorf("resolve application presets: %w", err)
 	}
 	state := applicationState{Preferences: preferences, ApplicationPresets: presets, Snapshots: []domain.Snapshot{}, Status: "unconfigured"}
+	state.Warning = r.recoveryWarning
 	if preferences.Repository == nil {
 		return state, nil
 	}
@@ -685,6 +689,9 @@ func (r *runtime) configureRepository(ctx context.Context, payload json.RawMessa
 }
 
 func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage) (applicationState, error) {
+	if _, open := r.repository.ID(); open {
+		return r.state(ctx)
+	}
 	var input struct {
 		Credentials domain.RepositoryCredentials `json:"credentials"`
 		Password    string                       `json:"password"`
@@ -707,6 +714,13 @@ func (r *runtime) unlockRepository(ctx context.Context, payload json.RawMessage)
 	}
 	if err := r.repository.Unlock(ctx, *preferences.Repository, input.Credentials, []byte(input.Password)); err != nil {
 		return applicationState{}, err
+	}
+	if preferences.Repository.SecretStorage != nil {
+		if err := r.onePassword.UpdateMetadata(ctx, *preferences.Repository); err != nil {
+			r.recoveryWarning = "Backups are unlocked, but recovery details could not be updated in 1Password. Keep your repository address until this succeeds on a future launch."
+		} else {
+			r.recoveryWarning = ""
+		}
 	}
 	return r.state(ctx)
 }

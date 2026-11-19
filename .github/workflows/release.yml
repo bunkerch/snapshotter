@@ -129,6 +129,7 @@ jobs:
                   pnpm build
                   (cd engine && go test -race ./...)
                   swift build --package-path macos -Xswiftc -warnings-as-errors
+                  swift test --package-path macos -Xswiftc -warnings-as-errors
 
             - name: Set up Developer ID keychain and notary profile
               env:

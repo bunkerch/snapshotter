@@ -14,6 +14,7 @@ test:
 	zsh -ic 'pnpm test'
 	zsh -ic 'pnpm build'
 	swift build --package-path macos
+	swift test --package-path macos
 
 verify:
 	zsh -ic 'pnpm lint'
@@ -21,4 +22,5 @@ verify:
 	zsh -ic 'pnpm build'
 	cd engine && go test -race ./...
 	swift build --package-path macos -Xswiftc -warnings-as-errors
+	swift test --package-path macos -Xswiftc -warnings-as-errors
 	sh scripts/package-release.sh

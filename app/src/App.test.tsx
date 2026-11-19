@@ -32,6 +32,7 @@ vi.mock("./bridge", () => ({
         }
     },
     subscribeToUpdates: () => () => {},
+    subscribeToRestoreProgress: () => () => {},
 }))
 
 const readyState: ApplicationState = {
@@ -297,7 +298,12 @@ describe("Snapshotter app", () => {
         expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
             "Legacy",
         )
-        expect(screen.queryByLabelText("Destination")).toBeNull()
+        expect(
+            screen.getByLabelText<HTMLInputElement>("Destination").value,
+        ).toBe("")
+        expect(
+            screen.getByText(/older 1Password item has no saved destination/),
+        ).toBeTruthy()
 
         fireEvent.change(
             screen.getByRole("combobox", { name: "Snapshotter item" }),

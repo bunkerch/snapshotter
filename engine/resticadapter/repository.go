@@ -32,6 +32,7 @@ import (
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/restorer"
 	"github.com/restic/restic/internal/ui/progress"
+	restoreui "github.com/restic/restic/internal/ui/restore"
 )
 
 const backupMetadataTagPrefix = "snapshotter:metadata:v1:"
@@ -295,6 +296,17 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 		return domain.Snapshot{}, fmt.Errorf("encode backup metadata: %w", err)
 	}
 	metadataTag := backupMetadataTagPrefix + base64.RawURLEncoding.EncodeToString(encodedMetadata)
+	unlocker, ctx, err := r.lock(ctx, false)
+	if err != nil {
+		return domain.Snapshot{}, err
+	}
+	discard := false
+	defer func() {
+		unlocker.Unlock()
+		if discard {
+			r.discardOpenRepository()
+		}
+	}()
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return domain.Snapshot{}, fmt.Errorf("load repository index: %w", err)
 	}
@@ -338,7 +350,7 @@ func (r *Repository) Backup(ctx context.Context, sources []domain.Source, exclus
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			r.discardOpenRepository()
+			discard = true
 		}
 		return domain.Snapshot{}, fmt.Errorf("save snapshot: %w", err)
 	}
@@ -428,7 +440,7 @@ func (r *Repository) RepairIndex(ctx context.Context, sink service.ProgressSink)
 	if err := r.ensureOpen(ctx); err != nil {
 		return err
 	}
-	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	unlocker, lockContext, err := r.lock(ctx, true)
 	if err != nil {
 		return fmt.Errorf("lock repository for index repair: %w", err)
 	}
@@ -447,7 +459,7 @@ func (r *Repository) Forget(ctx context.Context, policy domain.RetentionPolicy) 
 	if err := r.ensureOpen(ctx); err != nil {
 		return err
 	}
-	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	unlocker, lockContext, err := r.lock(ctx, true)
 	if err != nil {
 		return fmt.Errorf("lock repository for retention: %w", err)
 	}
@@ -500,7 +512,7 @@ func (r *Repository) DeleteSnapshot(ctx context.Context, snapshotID string) erro
 	if err != nil {
 		return fmt.Errorf("find snapshot: %w", err)
 	}
-	unlocker, lockContext, err := repository.Lock(ctx, r.repo, true, 0, func(string) {}, discardLog)
+	unlocker, lockContext, err := r.lock(ctx, true)
 	if err != nil {
 		return fmt.Errorf("lock repository to delete snapshot: %w", err)
 	}
@@ -649,11 +661,21 @@ func publicSnapshotTags(tags []string) []string {
 }
 
 func (r *Repository) Restore(ctx context.Context, snapshotID, selectedPath, destination string) (uint64, error) {
+	return r.RestoreWithProgress(ctx, snapshotID, selectedPath, destination, nil)
+}
+
+func (r *Repository) RestoreWithProgress(ctx context.Context, snapshotID, selectedPath, destination string, sink service.ProgressSink) (uint64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.ensureOpen(ctx); err != nil {
 		return 0, err
 	}
+	unlocker, ctx, err := r.lock(ctx, false)
+	if err != nil {
+		return 0, err
+	}
+	defer unlocker.Unlock()
+	emitProgress(sink, service.Progress{Phase: "preparing-restore"})
 	if err := r.repo.LoadIndex(ctx, nil); err != nil {
 		return 0, fmt.Errorf("load repository index: %w", err)
 	}
@@ -662,7 +684,12 @@ func (r *Repository) Restore(ctx context.Context, snapshotID, selectedPath, dest
 		return 0, err
 	}
 	selected := pathpkg.Clean("/" + strings.TrimSpace(selectedPath))
-	restore := restorer.NewRestorer(r.repo, snapshot, restorer.Options{Overwrite: restorer.OverwriteIfChanged})
+	var progress *restoreui.Progress
+	if sink != nil {
+		progress = restoreui.NewProgress(&restoreProgressPrinter{sink: sink}, 250*time.Millisecond)
+		defer progress.Finish()
+	}
+	restore := restorer.NewRestorer(r.repo, snapshot, restorer.Options{Overwrite: restorer.OverwriteIfChanged, Progress: progress})
 	restore.SelectFilter = func(item string, _ bool) (bool, bool) {
 		item = filepath.ToSlash(filepath.Clean(item))
 		if !strings.HasPrefix(item, "/") {
@@ -713,6 +740,40 @@ func (r *Repository) Close() error {
 }
 
 func discardLog(string, ...interface{}) {}
+
+type restoreProgressPrinter struct {
+	progress.NoopPrinter
+	sink service.ProgressSink
+}
+
+func (p *restoreProgressPrinter) Update(state restoreui.State, _ time.Duration) {
+	emitProgress(p.sink, service.Progress{Phase: "restoring", FilesDone: state.FilesFinished + state.FilesSkipped, FilesTotal: state.FilesTotal, BytesDone: state.AllBytesWritten + state.AllBytesSkipped, BytesTotal: state.AllBytesTotal})
+}
+func (p *restoreProgressPrinter) Finish(state restoreui.State, duration time.Duration) {
+	p.Update(state, duration)
+}
+func (p *restoreProgressPrinter) Error(_ string, err error) error                   { return err }
+func (p *restoreProgressPrinter) CompleteItem(restoreui.ItemAction, string, uint64) {}
+
+// Called with r.mu held. Recover abandoned locks using restic's own stale-lock
+// rules, never removing a live lock held by another backup or maintenance task.
+func (r *Repository) lock(ctx context.Context, exclusive bool) (*repository.Unlocker, context.Context, error) {
+	unlocker, lockContext, err := repository.Lock(ctx, r.repo, exclusive, 0, func(string) {}, discardLog)
+	if err == nil || !restic.IsAlreadyLocked(err) {
+		return unlocker, lockContext, err
+	}
+	removed, cleanupErr := repository.RemoveStaleLocks(ctx, r.repo)
+	if cleanupErr != nil {
+		return nil, ctx, fmt.Errorf("recover stale repository locks: %w", cleanupErr)
+	}
+	if removed > 0 {
+		unlocker, lockContext, err = repository.Lock(ctx, r.repo, exclusive, 0, func(string) {}, discardLog)
+	}
+	if err != nil && restic.IsAlreadyLocked(err) {
+		return nil, ctx, fmt.Errorf("repository is in use by another operation; wait for it to finish and retry: %w", err)
+	}
+	return unlocker, lockContext, err
+}
 
 func emitProgress(sink service.ProgressSink, progress service.Progress) {
 	if sink != nil {

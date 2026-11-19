@@ -11,7 +11,7 @@ import {
     Trash2,
 } from "lucide-react"
 import { useEffect, useState } from "react"
-import { requestNative } from "../bridge"
+import { requestNative, subscribeToRestoreProgress } from "../bridge"
 import {
     basename,
     formatBytes,
@@ -115,6 +115,24 @@ export function SnapshotBrowser({
     const [confirmDelete, setConfirmDelete] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [restoring, setRestoring] = useState(false)
+    const [choosingDestination, setChoosingDestination] = useState(false)
+    const [cancelling, setCancelling] = useState(false)
+
+    useEffect(
+        () =>
+            subscribeToRestoreProgress((progress) => {
+                if (!restoring || choosingDestination || cancelling) return
+                if (progress.phase === "preparing-restore")
+                    setStatus(
+                        "Preparing restore: loading the repository index…",
+                    )
+                if (progress.phase === "restoring")
+                    setStatus(
+                        `Restoring… ${formatCount(progress.filesDone ?? 0)} files processed · ${formatBytes(progress.bytesDone ?? 0)}`,
+                    )
+            }),
+        [restoring, choosingDestination, cancelling],
+    )
 
     useEffect(() => {
         let active = true
@@ -142,10 +160,22 @@ export function SnapshotBrowser({
         const restorePath = selected?.path ?? path
         setStatus("Choose where to restore…")
         setRestoring(true)
+        setChoosingDestination(true)
         try {
+            const destination = await requestNative<string | null>(
+                "restore.destination.choose",
+            )
+            setChoosingDestination(false)
+            if (!destination) {
+                setStatus("Restore cancelled")
+                return
+            }
+            setStatus(
+                `Restoring to ${destination}… Large restores can take a while.`,
+            )
             const result = await requestNative<{ restoredFiles: number }>(
-                "snapshot.restore.choose",
-                { snapshotID: snapshot.id, path: restorePath },
+                "snapshot.restore",
+                { snapshotID: snapshot.id, path: restorePath, destination },
             )
             setStatus(
                 `Restored ${formatCount(result.restoredFiles)} ${result.restoredFiles === 1 ? "file" : "files"}`,
@@ -154,15 +184,24 @@ export function SnapshotBrowser({
             setStatus(message(error))
         } finally {
             setRestoring(false)
+            setChoosingDestination(false)
+            setCancelling(false)
         }
     }
 
     const cancelOperation = async () => {
+        setCancelling(true)
         setStatus("Cancelling…")
         try {
-            await requestNative<boolean>("operation.cancel")
+            await requestNative<boolean>(
+                choosingDestination
+                    ? "restore.destination.cancel"
+                    : "operation.cancel",
+            )
         } catch (error) {
             setStatus(message(error))
+        } finally {
+            setCancelling(false)
         }
     }
 
@@ -193,7 +232,7 @@ export function SnapshotBrowser({
                     className="icon-button"
                     aria-label={isRoot ? "Back to snapshots" : "Up one level"}
                     title={isRoot ? "Back to snapshots" : "Up one level"}
-                    disabled={loading || restoring}
+                    disabled={loading || restoring || deleting}
                     onClick={() => {
                         if (isRoot) onBack()
                         else setPath(parent)
@@ -211,7 +250,7 @@ export function SnapshotBrowser({
                     onClick={() =>
                         void (restoring ? cancelOperation() : restore())
                     }
-                    disabled={loading || deleting}
+                    disabled={loading || deleting || cancelling}
                 >
                     {restoring ? (
                         <Square size={11} fill="currentColor" />
@@ -232,6 +271,7 @@ export function SnapshotBrowser({
                             type="button"
                             className={`entry-row ${selected?.path === entry.path ? "selected" : ""}`}
                             key={entry.path}
+                            disabled={restoring || deleting}
                             onClick={() => {
                                 if (entry.type === "dir") setPath(entry.path)
                                 else setSelected(entry)
@@ -259,6 +299,7 @@ export function SnapshotBrowser({
                     <button
                         type="button"
                         className="destructive-button"
+                        disabled={restoring}
                         onClick={() => setConfirmDelete(true)}
                     >
                         <Trash2 size={13} />
@@ -288,7 +329,11 @@ export function SnapshotBrowser({
                     </div>
                 )}
             </div>
-            {status && <div className="restore-status">{status}</div>}
+            {status && (
+                <div className="restore-status" role="status">
+                    {status}
+                </div>
+            )}
         </section>
     )
 }

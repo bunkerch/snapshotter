@@ -18,7 +18,14 @@ enum EngineBridgeError: LocalizedError {
     }
 }
 
-final class EngineBridge: @unchecked Sendable {
+protocol NativeEngine: Sendable {
+    func handle(_ request: String) throws -> String
+    func progress() throws -> String
+    func cancel() throws -> String
+    func close()
+}
+
+final class EngineBridge: NativeEngine, @unchecked Sendable {
     private typealias OpenFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias HandleFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
     private typealias ProgressFunction = @convention(c) () -> UnsafeMutablePointer<CChar>?
@@ -77,6 +84,10 @@ final class EngineBridge: @unchecked Sendable {
 
     func cancel() throws -> String {
         try consume(cancelOperation())
+    }
+
+    func close() {
+        closeEngine()
     }
 
     private func consume(_ pointer: UnsafeMutablePointer<CChar>?) throws -> String {

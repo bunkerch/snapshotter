@@ -92,6 +92,7 @@ export interface SnapshotEntry {
 }
 
 export interface ApplicationState {
+    warning?: string
     preferences: Preferences
     applicationPresets: ApplicationPreset[]
     snapshots: Snapshot[]

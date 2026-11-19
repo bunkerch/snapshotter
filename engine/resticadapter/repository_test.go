@@ -3,16 +3,21 @@ package resticadapter
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	minio "github.com/minio/minio-go/v7"
 	"github.com/restic/restic/app/domain"
 	"github.com/restic/restic/app/service"
+	"github.com/restic/restic/internal/backend"
+	"github.com/restic/restic/internal/crypto"
+	"github.com/restic/restic/internal/restic"
 )
 
 func TestInitializeAndUnlockLocalRepository(t *testing.T) {
@@ -267,6 +272,53 @@ func TestBackupCanRestartAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestRestoreMultipleDirectoriesAfterCancellationAndFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	source := t.TempDir()
+	for _, directory := range []string{"Documents", "Pictures"} {
+		if err := os.MkdirAll(filepath.Join(source, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, directory, "data.txt"), []byte(directory), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configured := domain.Repository{ID: "restore", Kind: domain.RepositoryLocal, Location: t.TempDir()}
+	adapter := &Repository{}
+	if err := adapter.Initialize(ctx, configured, domain.RepositoryCredentials{}, []byte("test password")); err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+	snapshot, err := adapter.Backup(ctx, []domain.Source{{ID: "source", Path: source, Enabled: true}}, nil, domain.BackupMetadata{Version: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, stop := context.WithCancel(ctx)
+	stop()
+	if _, err := adapter.Restore(cancelled, snapshot.ID, source, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled restore: %v", err)
+	}
+	invalidDestination := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(invalidDestination, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Restore(ctx, snapshot.ID, source, invalidDestination); err == nil {
+		t.Fatal("restore to file must fail")
+	}
+	destination := t.TempDir()
+	for _, directory := range []string{"Documents", "Pictures", "Documents"} {
+		selected := filepath.Join(source, directory)
+		if _, err := adapter.Restore(ctx, snapshot.ID, selected, destination); err != nil {
+			t.Fatalf("restore %s: %v", directory, err)
+		}
+		content, err := os.ReadFile(filepath.Join(destination, strings.TrimPrefix(selected, "/"), "data.txt"))
+		if err != nil || string(content) != directory {
+			t.Fatalf("restore %s content = %q, error = %v", directory, content, err)
+		}
+	}
+}
+
 func TestUnlockRejectsWrongPassword(t *testing.T) {
 	configured := domain.Repository{
 		ID:       "test",
@@ -285,6 +337,56 @@ func TestUnlockRejectsWrongPassword(t *testing.T) {
 	opener := &Repository{}
 	if err := opener.Unlock(context.Background(), configured, domain.RepositoryCredentials{}, []byte("wrong password")); err == nil {
 		t.Fatal("expected wrong password to fail")
+	}
+}
+
+func TestMaintenanceRecoversStaleLocksButPreservesActiveLocks(t *testing.T) {
+	ctx := context.Background()
+	adapter := &Repository{}
+	if err := adapter.Initialize(ctx, domain.Repository{ID: "locks", Kind: domain.RepositoryLocal, Location: t.TempDir()}, domain.RepositoryCredentials{}, []byte("test password")); err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.Close()
+	for _, stale := range []bool{true, false} {
+		stamp := time.Now()
+		if stale {
+			stamp = stamp.Add(-2 * time.Hour)
+		}
+		encoded, err := json.Marshal(restic.Lock{Time: stamp, PID: os.Getpid(), Hostname: "another-mac", Exclusive: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nonce := crypto.NewRandomNonce()
+		ciphertext := adapter.repo.Key().Seal(nonce, nonce, encoded, nil)
+		id := restic.Hash(ciphertext)
+		be, err := openBackend(ctx, *adapter.configured, domain.RepositoryCredentials{}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = be.Save(ctx, backend.Handle{Type: restic.LockFile, Name: id.String()}, backend.NewByteReader(ciphertext, be.Hasher()))
+		_ = be.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = adapter.RepairIndex(ctx, nil)
+		if stale && err != nil {
+			t.Fatalf("stale lock prevented repair: %v", err)
+		}
+		if !stale && err == nil {
+			t.Fatal("active lock must prevent repair")
+		}
+		found := false
+		if err := adapter.repo.List(ctx, restic.LockFile, func(candidate restic.ID, _ int64) error {
+			if candidate == id {
+				found = true
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if found == stale {
+			t.Fatalf("stale=%v lock remains=%v", stale, found)
+		}
 	}
 }
 

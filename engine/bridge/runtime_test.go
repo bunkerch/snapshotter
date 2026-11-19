@@ -21,6 +21,8 @@ type fakeSecretStore struct {
 	password    string
 	archived    *domain.SecretStorage
 	updated     *domain.Repository
+	loads       int
+	updateErr   error
 }
 
 func (f *fakeSecretStore) Vaults(context.Context, string) ([]onepasswordstore.Vault, error) {
@@ -34,9 +36,10 @@ func (f *fakeSecretStore) Save(context.Context, domain.Repository, domain.Reposi
 }
 func (f *fakeSecretStore) UpdateMetadata(_ context.Context, repository domain.Repository) error {
 	f.updated = &repository
-	return nil
+	return f.updateErr
 }
 func (f *fakeSecretStore) Load(context.Context, domain.SecretStorage) (domain.RepositoryCredentials, string, error) {
+	f.loads++
 	return f.credentials, f.password, nil
 }
 func (f *fakeSecretStore) Archive(_ context.Context, storage domain.SecretStorage) error {
@@ -280,4 +283,58 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func TestStartupUnlockEnablesScheduledBackupWithoutRepeatedAuthorization(t *testing.T) {
+	ctx := context.Background()
+	preferencesPath := filepath.Join(t.TempDir(), "preferences.json")
+	configured := domain.Repository{ID: "startup", Name: "Startup", Kind: domain.RepositoryLocal, Location: t.TempDir(), SecretStorage: &domain.SecretStorage{Provider: "onepassword", Account: "example", VaultID: "vault", ItemID: "item"}}
+	creator := &resticadapter.Repository{}
+	if err := creator.Initialize(ctx, configured, domain.RepositoryCredentials{}, []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := creator.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newRuntime(preferencesPath)
+	defer runtime.repository.Close()
+	secrets := &fakeSecretStore{password: "secret", updateErr: fmt.Errorf("metadata update unavailable")}
+	runtime.onePassword = secrets
+	preferences, err := runtime.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "important.txt"), []byte("protected"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preferences.Repository = &configured
+	preferences.Sources = []domain.Source{{ID: "source", Path: source, Enabled: true}}
+	preferences.Schedule = domain.Schedule{Enabled: true, Kind: domain.ScheduleHourly, Interval: 1}
+	if err := runtime.store.Save(preferences); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		result := runtime.handle(ctx, []byte(`{"type":"repository.unlock","payload":{}}`))
+		if !result.OK {
+			t.Fatal(result.Error)
+		}
+		state := result.Data.(applicationState)
+		if state.Status != "ready" || state.Warning == "" {
+			t.Fatalf("unexpected state after metadata failure: %#v", state)
+		}
+	}
+	if secrets.loads != 1 {
+		t.Fatalf("authorized %d times, want once", secrets.loads)
+	}
+	if secrets.updated == nil || secrets.updated.Location != configured.Location {
+		t.Fatal("existing repository recovery metadata was not backfilled")
+	}
+	result := runtime.handle(ctx, []byte(`{"type":"schedule.tick","payload":{}}`))
+	if !result.OK {
+		t.Fatal(result.Error)
+	}
+	if len(result.Data.(applicationState).Snapshots) != 1 {
+		t.Fatal("scheduled backup did not run after startup unlock")
+	}
 }

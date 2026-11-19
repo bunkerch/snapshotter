@@ -188,6 +188,12 @@ func (s *Store) UpdateMetadata(ctx context.Context, repository domain.Repository
 	if err != nil {
 		return fmt.Errorf("load 1Password item for update: %w", currentDesktopSetting(err))
 	}
+	if item.Title == "Snapshotter: "+repository.Name &&
+		itemField(item.Fields, kindFieldID) == string(repository.Kind) &&
+		itemField(item.Fields, locationFieldID) == repository.Location &&
+		strings.Contains(item.Notes, recoveryMarker) {
+		return nil
+	}
 	sectionID := "repository"
 	item.Title = "Snapshotter: " + repository.Name
 	item.Fields = upsertField(item.Fields, onepassword.ItemField{ID: kindFieldID, Title: "Repository type", SectionID: &sectionID, FieldType: onepassword.ItemFieldTypeText, Value: string(repository.Kind)})

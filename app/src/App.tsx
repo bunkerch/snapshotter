@@ -173,6 +173,11 @@ export function App() {
                         {error}
                     </div>
                 )}
+                {state?.warning && (
+                    <div className="error-banner" role="alert">
+                        {state.warning}
+                    </div>
+                )}
                 {!state && <Loading />}
                 {state?.status === "unconfigured" && (
                     <Setup
