@@ -14,6 +14,7 @@ func TestStoreMigratesLegacyHourlyPolicies(t *testing.T) {
 	preferences := domain.DefaultPreferences()
 	preferences.Schedule.Kind = domain.ScheduleHourly
 	preferences.Schedule.Interval = 2
+	preferences.Schedule.Enabled = false
 	preferences.Retention.Hourly = 24
 	encoded, err := json.Marshal(preferences)
 	if err != nil {
@@ -26,7 +27,7 @@ func TestStoreMigratesLegacyHourlyPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Schedule.Kind != domain.ScheduleDaily || loaded.Retention.Hourly != 0 {
+	if loaded.Schedule.Kind != domain.ScheduleDaily || loaded.Retention.Hourly != 0 || loaded.Schedule.Enabled {
 		t.Fatalf("legacy hourly policy was not migrated: %#v", loaded)
 	}
 }

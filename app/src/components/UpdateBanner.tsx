@@ -23,10 +23,7 @@ export function UpdateBanner({
         <div className="update-banner" role="status">
             <div className="update-banner-text">
                 <strong>Snapshotter {update.latestVersion} is available</strong>
-                <small>
-                    You are on {update.currentVersion}
-                    {update.notes ? ` · ${update.notes.slice(0, 90)}` : ""}…
-                </small>
+                <small>Current version: {update.currentVersion}</small>
             </div>
             <div className="update-banner-actions">
                 <button

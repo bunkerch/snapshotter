@@ -92,6 +92,7 @@ export interface SnapshotEntry {
 }
 
 export interface ApplicationState {
+    backup?: { lastBackup?: string; sourceCount: number; due: boolean }
     warning?: string
     preferences: Preferences
     applicationPresets: ApplicationPreset[]

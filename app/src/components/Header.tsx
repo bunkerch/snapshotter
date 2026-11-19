@@ -1,14 +1,16 @@
-import { Settings2, ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
 import type { View } from "../App"
 
 export function Header({
     view,
     onView,
     showNavigation,
+    busy = false,
 }: {
     view: View
     onView: (view: View) => void
     showNavigation: boolean
+    busy?: boolean
 }) {
     return (
         <>
@@ -19,16 +21,6 @@ export function Header({
                     </div>
                     <span>Snapshotter</span>
                 </div>
-                {showNavigation && (
-                    <button
-                        type="button"
-                        className="icon-button"
-                        aria-label="Settings"
-                        onClick={() => onView("settings")}
-                    >
-                        <Settings2 size={17} />
-                    </button>
-                )}
             </header>
             {showNavigation && (
                 <nav className="segmented" aria-label="Main navigation">
@@ -39,6 +31,7 @@ export function Header({
                                 key={item}
                                 className={view === item ? "selected" : ""}
                                 aria-pressed={view === item}
+                                disabled={busy && view !== item}
                                 onClick={() => onView(item)}
                             >
                                 {item[0].toUpperCase() + item.slice(1)}

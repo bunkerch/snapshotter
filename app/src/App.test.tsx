@@ -145,6 +145,101 @@ describe("Snapshotter app", () => {
         expect(screen.queryByRole("navigation")).toBeNull()
     })
 
+    it("does not claim protection from an old snapshot", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        expect(screen.queryByText("Protected")).toBeNull()
+    })
+
+    it("disables backup when all folders are disabled", async () => {
+        vi.mocked(requestNative).mockResolvedValue({
+            ...readyState,
+            preferences: {
+                ...readyState.preferences,
+                sources: readyState.preferences.sources.map((source) => ({
+                    ...source,
+                    enabled: false,
+                })),
+            },
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+        expect(
+            screen.getByRole<HTMLButtonElement>("button", { name: "Back up" })
+                .disabled,
+        ).toBe(true)
+    })
+
+    it("shows folder errors without opening the add-folder editor", async () => {
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "source.setEnabled")
+                throw new Error("Could not save folder")
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            screen.getByRole("switch", { name: "Disable Documents" }),
+        )
+        expect(await screen.findByRole("alert")).toHaveProperty(
+            "textContent",
+            "Could not save folder",
+        )
+    })
+
+    it("keeps an exclusion draft after a failed save", async () => {
+        vi.mocked(requestNative).mockImplementation(async (type) => {
+            if (type === "exclusion.add")
+                throw new Error("Could not save exclusion")
+            return readyState
+        })
+        render(<App />)
+        await screen.findByText("Documents")
+        fireEvent.click(
+            screen.getByRole("button", { name: "Manage Exclusions" }),
+        )
+        fireEvent.change(screen.getByLabelText("Custom exclusion pattern"), {
+            target: { value: "**/cache" },
+        })
+        const form = screen
+            .getByLabelText("Custom exclusion pattern")
+            .closest("form")
+        if (!form) throw new Error("Exclusion form is missing")
+        fireEvent.submit(form)
+        await screen.findByText("Could not save exclusion")
+        expect(
+            screen.getByLabelText<HTMLInputElement>("Custom exclusion pattern")
+                .value,
+        ).toBe("**/cache")
+    })
+
+    it("refreshes snapshots when a scheduled backup finishes", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        const count = vi
+            .mocked(requestNative)
+            .mock.calls.filter(([type]) => type === "state.get").length
+        act(() => nativeProgress.listener?.({ phase: "backing-up" }))
+        act(() => nativeProgress.listener?.({ phase: "complete" }))
+        await waitFor(() =>
+            expect(
+                vi
+                    .mocked(requestNative)
+                    .mock.calls.filter(([type]) => type === "state.get").length,
+            ).toBe(count + 1),
+        )
+    })
+
+    it("ends scheduled backup activity even when the final progress tick is missed", async () => {
+        render(<App />)
+        await screen.findByText("Documents")
+        act(() => nativeProgress.listener?.({ phase: "backing-up" }))
+        act(() =>
+            window.dispatchEvent(new Event("snapshotter:backup-finished")),
+        )
+        await screen.findByRole("button", { name: "Back up" })
+    })
+
     it("configures an S3 repository without persisting credentials in UI state", async () => {
         vi.mocked(requestNative).mockResolvedValueOnce({
             ...readyState,
@@ -276,11 +371,11 @@ describe("Snapshotter app", () => {
         fireEvent.click(screen.getByRole("button", { name: "Load vaults" }))
         await screen.findByRole("combobox", { name: "Vault" })
         fireEvent.click(
-            screen.getByRole("button", { name: "Use synced secrets…" }),
+            screen.getByRole("button", { name: "Find saved backups" }),
         )
         fireEvent.change(
             await screen.findByRole("combobox", {
-                name: "Snapshotter item",
+                name: "Saved backup",
             }),
             { target: { value: "item-id" } },
         )
@@ -292,7 +387,7 @@ describe("Snapshotter app", () => {
         ).toBe("s3:s3.amazonaws.com/archive/snapshotter")
 
         fireEvent.change(
-            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            screen.getByRole("combobox", { name: "Saved backup" }),
             { target: { value: "legacy-item" } },
         )
         expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
@@ -301,12 +396,10 @@ describe("Snapshotter app", () => {
         expect(
             screen.getByLabelText<HTMLInputElement>("Destination").value,
         ).toBe("")
-        expect(
-            screen.getByText(/older 1Password item has no saved destination/),
-        ).toBeTruthy()
+        expect(screen.getByText(/No destination saved/)).toBeTruthy()
 
         fireEvent.change(
-            screen.getByRole("combobox", { name: "Snapshotter item" }),
+            screen.getByRole("combobox", { name: "Saved backup" }),
             { target: { value: "item-id" } },
         )
         fireEvent.click(screen.getByRole("button", { name: "Continue" }))
@@ -359,7 +452,7 @@ describe("Snapshotter app", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Delete snapshot" }))
         expect(
-            screen.getByText("Delete this snapshot and reclaim its space?"),
+            screen.getByText("Delete this snapshot? This cannot be undone."),
         ).toBeTruthy()
         fireEvent.click(screen.getByRole("button", { name: "Delete" }))
         await waitFor(() => {
@@ -377,14 +470,12 @@ describe("Snapshotter app", () => {
                 name: "Settings",
             }),
         )
-        fireEvent.click(screen.getByRole("button", { name: /Smart retention/ }))
+        fireEvent.click(screen.getByRole("button", { name: /Keep snapshots/ }))
         fireEvent.click(
-            screen.getByRole("button", { name: /Change repository/ }),
+            screen.getByRole("button", { name: /Disconnect repository/ }),
         )
 
-        expect(
-            screen.getByText(/Stored snapshots remain untouched/),
-        ).toBeTruthy()
+        expect(screen.getByText(/Backups stay in the repository/)).toBeTruthy()
         fireEvent.click(screen.getByRole("button", { name: "Disconnect" }))
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith(
@@ -394,7 +485,7 @@ describe("Snapshotter app", () => {
         })
 
         expect(
-            screen.getByText(/Applied after every successful backup/),
+            screen.getByText(/Older snapshots are removed after each backup/),
         ).toBeTruthy()
         expect(screen.getByText("Available in the packaged app")).toBeTruthy()
         await waitFor(() => {
@@ -428,7 +519,6 @@ describe("Snapshotter app", () => {
 
         await waitFor(() => {
             expect(requestNative).toHaveBeenCalledWith("schedule.set", {
-                ...readyState.preferences.schedule,
                 hour: 18,
                 minute: 45,
             })

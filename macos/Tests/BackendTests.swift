@@ -3,6 +3,31 @@ import XCTest
 @testable import Snapshotter
 
 final class BackendTests: XCTestCase {
+    func testCompetingRestoreIsRejectedInsteadOfQueued() async {
+        let started = expectation(description: "First restore started")
+        let drained = expectation(description: "Queue drained")
+        let release = DispatchSemaphore(value: 0)
+        let engine = FixtureEngine { request in
+            if request == "snapshot.restore" {
+                started.fulfill()
+                XCTAssertEqual(release.wait(timeout: .now() + 3), .success)
+            } else if request == "state.get" {
+                drained.fulfill()
+            } else {
+                XCTFail("Unexpected request: \(request)")
+            }
+            return #"{"ok":true}"#
+        }
+        let backend = Backend(engine: .success(engine))
+        backend.restoreSnapshot(snapshotID: "snapshot", path: "/Documents", destination: "/recovered", requestID: nil, webView: nil)
+        await fulfillment(of: [started], timeout: 2)
+        backend.restoreSnapshot(snapshotID: "snapshot", path: "/Pictures", destination: "/recovered", requestID: nil, webView: nil)
+        release.signal()
+        backend.handle(#"{"type":"state.get"}"#, requestID: nil, webView: nil)
+        await fulfillment(of: [drained], timeout: 2)
+        withExtendedLifetime(backend) {}
+    }
+
     func testStartupUnlocksOnePasswordWithoutAWebView() async {
         let unlocked = expectation(description: "Startup authorizes 1Password")
         let backedUp = expectation(description: "Scheduled backup runs without opening the UI")
@@ -33,7 +58,7 @@ final class BackendTests: XCTestCase {
     func testStartupAuthorizationFailureIsVisible() async {
         let attention = expectation(description: "Failure is surfaced instead of silently disabling backups")
         let observer = NotificationCenter.default.addObserver(forName: Notification.Name("snapshotter.backupAttention"), object: nil, queue: .main) { notification in
-            if let message = notification.userInfo?["message"] as? String, message.contains("Backups are paused") {
+            if let message = notification.userInfo?["message"] as? String, message.contains("Unlock to resume backups") {
                 attention.fulfill()
             }
         }

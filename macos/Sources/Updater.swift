@@ -45,8 +45,12 @@ final class Updater: @unchecked Sendable {
     private static let checkInterval: TimeInterval = 24 * 60 * 60
 
     private var latest: AvailableUpdate?
+    private var lastCheckError: Error?
+    private let fetchRelease: (@Sendable () throws -> GitHubRelease?)?
 
-    private init() {}
+    init(fetchRelease: (@Sendable () throws -> GitHubRelease?)? = nil) {
+        self.fetchRelease = fetchRelease
+    }
 
     /// Records the request's web view so the updater can push availability
     /// events into an already-open popover.
@@ -71,10 +75,11 @@ final class Updater: @unchecked Sendable {
     /// Runs an immediate, user-initiated check. It bypasses the daily throttle
     /// and only reports availability (it never automatically installs) so the
     /// settings screen can show the result without surprising the user.
-    func checkNow(completion: @escaping @Sendable (AvailableUpdate) -> Void) {
+    func checkNow(completion: @escaping @Sendable (Result<AvailableUpdate, Error>) -> Void) {
         queue.async {
             self.runCheck(autoInstall: false, markChecked: Date())
-            completion(self.statusSnapshot())
+            if let error = self.lastCheckError { completion(.failure(error)) }
+            else { completion(.success(self.statusSnapshot())) }
         }
     }
 
@@ -106,8 +111,9 @@ final class Updater: @unchecked Sendable {
     // MARK: - Check
 
     private func runCheck(autoInstall: Bool, markChecked: Date) {
+        lastCheckError = nil
         performCheck(autoInstall: autoInstall)
-        defaults.set(markChecked.timeIntervalSince1970, forKey: Self.lastCheckKey)
+        if lastCheckError == nil { defaults.set(markChecked.timeIntervalSince1970, forKey: Self.lastCheckKey) }
     }
 
     private func performCheck(autoInstall: Bool) {
@@ -137,6 +143,7 @@ final class Updater: @unchecked Sendable {
             let downloadURL = latestRelease.assets
                 .first { $0.name == "Snapshotter-\(version)-macOS.zip" }?
                 .browserDownloadURL
+            guard downloadURL != nil else { throw UpdaterError.assetNotFound }
             let update = AvailableUpdate(
                 currentVersion: currentVersion,
                 latestVersion: version,
@@ -156,14 +163,7 @@ final class Updater: @unchecked Sendable {
                 self.push(update)
             }
         } catch {
-            // Transient network/API failures are retried on the next daily pass.
-            self.applyStatus(AvailableUpdate(
-                currentVersion: currentVersion,
-                latestVersion: currentVersion,
-                available: false,
-                notes: nil,
-                url: nil
-            ))
+            lastCheckError = error
         }
     }
 
@@ -200,6 +200,7 @@ final class Updater: @unchecked Sendable {
     // MARK: - Networking
 
     private func fetchLatestRelease() throws -> GitHubRelease? {
+        if let fetchRelease { return try fetchRelease() }
         guard let url = URL(string: "https://api.github.com/repos/\(repositoryOwner)/\(repositoryName)/releases/latest") else {
             throw UpdaterError.invalidResponse
         }
@@ -277,40 +278,37 @@ final class Updater: @unchecked Sendable {
 
     private func replaceRunningApp(with downloadedApp: URL) throws {
         let runningApp = Bundle.main.bundleURL
+        guard !snapshotterOperationInProgress() else { throw UpdaterError.operationInProgress }
         // Refuse to swap a developable build; a real packaged release is signed.
         guard let signature = try? runProcess(executable: URL(fileURLWithPath: "/usr/bin/codesign"), arguments: ["--verify", "--deep", "--strict", runningApp.path]),
               signature.status == 0 else {
             throw UpdaterError.signatureCheckFailed("Refusing to update an unsigned development build")
         }
 
-        let script = """
-        #!/bin/sh
-        set -e
-        old="$1"
-        new="$2"
-        pid="$3"
-        while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
-        rm -rf "$old"
-        mv "$new" "$old"
-        open "$old"
-        """
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SnapshotterUpdate-\(UUID().uuidString).sh")
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: scriptURL) }
+        // Stage on the same volume for rename/rollback. The detached helper owns
+        // this directory after launch; the download's temporary directory may go away.
+        let staging = runningApp.deletingLastPathComponent().appendingPathComponent(".Snapshotter-update-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
+        var launched = false
+        defer { if !launched { try? FileManager.default.removeItem(at: staging) } }
+        let replacement = staging.appendingPathComponent("Snapshotter.app")
+        try FileManager.default.copyItem(at: downloadedApp, to: replacement)
+        let scriptURL = staging.appendingPathComponent("install.sh")
+        try UpdateInstaller.script.write(to: scriptURL, atomically: true, encoding: .utf8)
 
         let wrapper = try runProcess(
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
                 "-c",
-                "nohup sh \(shellQuote(scriptURL.path)) \(shellQuote(runningApp.path)) \(shellQuote(downloadedApp.path)) \(ProcessInfo.processInfo.processIdentifier) >/dev/null 2>&1 &",
+                "nohup sh \(shellQuote(scriptURL.path)) \(shellQuote(runningApp.path)) \(shellQuote(replacement.path)) \(ProcessInfo.processInfo.processIdentifier) /usr/bin/open >\(shellQuote(staging.appendingPathComponent("install.log").path)) 2>&1 &",
             ]
         )
         guard wrapper.status == 0 else {
             throw UpdaterError.unzipFailed(wrapper.output)
         }
-        // The detached helper swaps the bundle and relaunches; terminate now.
-        exit(0)
+        launched = true
+        // Use the normal termination path so engine work and locks are cleaned up.
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
 
     // MARK: - Preferences
@@ -332,9 +330,11 @@ final class Updater: @unchecked Sendable {
         return value?.isEmpty == false ? value! : "0.0.0"
     }
 
-    private static func isNewer(_ candidate: String, than current: String) -> Bool {
-        let candidateParts = versionParts(candidate)
-        let currentParts = versionParts(current)
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        let candidateVersion = candidate.split(separator: "+", maxSplits: 1, omittingEmptySubsequences: false)[0].split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let currentVersion = current.split(separator: "+", maxSplits: 1, omittingEmptySubsequences: false)[0].split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let candidateParts = candidateVersion[0].split(separator: ".").map { Int($0) ?? 0 }
+        let currentParts = currentVersion[0].split(separator: ".").map { Int($0) ?? 0 }
         let count = max(candidateParts.count, currentParts.count)
         for index in 0..<count {
             let a = index < candidateParts.count ? candidateParts[index] : 0
@@ -342,17 +342,20 @@ final class Updater: @unchecked Sendable {
             if a > b { return true }
             if a < b { return false }
         }
-        return false
-    }
-
-    private static func versionParts(_ version: String) -> [Int] {
-        return version
-            .replacingOccurrences(of: "-", with: ".")
-            .split(separator: ".")
-            .map {
-                let integer = $0.prefix(while: { $0.isNumber })
-                return Int(integer) ?? 0
+        if candidateVersion.count == 1 { return currentVersion.count > 1 }
+        if currentVersion.count == 1 { return false }
+        let candidatePrerelease = candidateVersion[1].split(separator: ".")
+        let currentPrerelease = currentVersion[1].split(separator: ".")
+        for (a, b) in zip(candidatePrerelease, currentPrerelease) {
+            if a == b { continue }
+            switch (Int(a), Int(b)) {
+            case let (.some(left), .some(right)): return left > right
+            case (.some, .none): return false
+            case (.none, .some): return true
+            case (.none, .none): return a > b
             }
+        }
+        return candidatePrerelease.count > currentPrerelease.count
     }
 
     // MARK: - Process helpers
@@ -376,6 +379,35 @@ final class Updater: @unchecked Sendable {
     private func shellQuote(_ value: String) -> String {
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+}
+
+enum UpdateInstaller {
+    static let script = """
+    #!/bin/sh
+    set -eu
+    old="$1"
+    new="$2"
+    pid="$3"
+    launch="$4"
+    stage=$(dirname "$new")
+    previous="$stage/previous.app"
+    if [ "$pid" != 0 ]; then
+        while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+    fi
+    test -d "$new"
+    mv "$old" "$previous"
+    if ! mv "$new" "$old"; then
+        mv "$previous" "$old"
+        "$launch" "$old" || true
+        exit 1
+    fi
+    if ! "$launch" "$old"; then
+        mv "$old" "$new"
+        mv "$previous" "$old"
+        exit 1
+    fi
+    rm -rf "$stage"
+    """
 }
 
 private enum UpdaterError: LocalizedError {
@@ -422,7 +454,7 @@ private final class UpdateResultBox: @unchecked Sendable {
     }
 }
 
-private struct GitHubRelease: Decodable {
+struct GitHubRelease: Decodable, Sendable {
     let tagName: String
     let body: String?
     let assets: [GitHubAsset]
@@ -434,7 +466,7 @@ private struct GitHubRelease: Decodable {
     }
 }
 
-private struct GitHubAsset: Decodable {
+struct GitHubAsset: Decodable, Sendable {
     let name: String
     let browserDownloadURL: URL
 
